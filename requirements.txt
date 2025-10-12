@@ -3,3 +3,6 @@ uvicorn[standard]==0.30.6
 pydantic==2.8.2
 pydantic-settings==2.4.0
 aiokafka==0.10.0
+dateparser>=1.2.0
+httpx
+rapidfuzz
