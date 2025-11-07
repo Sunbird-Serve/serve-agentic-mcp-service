@@ -39,19 +39,54 @@ async def _llm_parse_time(text: str, tz: str, dur_min: int, now: datetime) -> Li
     tz_offset = now.strftime("%z")
     tz_offset_fmt = f"{tz_offset[:3]}:{tz_offset[3:]}"  # +0530 -> +05:30
     
-    prompt = (
-        f"Current datetime: {now_date} {now_time} ({now_day}), timezone offset: {tz_offset_fmt}\n"
-        f"User request: {json.dumps(text)}\n"
-        f"Meeting duration: {dur_min} minutes\n\n"
-        "Instructions:\n"
-        "1. Parse the date and time from user request\n"
-        "2. Time of day meanings: morning=10:00, afternoon=15:00, evening=19:00, night=21:00\n"
-        "3. Calculate the correct date (if 'tomorrow', add 1 day; if 'saturday', find next Saturday, etc.)\n"
-        "4. Must be at least 2 hours after current datetime\n"
-        "5. Return JSON in this exact format:\n"
-        f'{{"slots":[{{"start_iso":"YYYY-MM-DDTHH:MM:SS{tz_offset_fmt}","end_iso":"YYYY-MM-DDTHH:MM:SS{tz_offset_fmt}","label":"DDD DD MMM HH:MM AM/PM","confidence":0.8}}]}}\n\n'
-        "Return only the JSON, no other text."
-    )
+    # Calculate end time for examples
+    example_start = now + timedelta(days=1, hours=7)  # Tomorrow 7 PM
+    example_end = example_start + timedelta(minutes=dur_min)
+    
+    prompt = f"""Parse time/date from natural language into structured slots.
+
+CURRENT TIME: {now_date} {now_time} ({now_day})
+TIMEZONE: {tz_offset_fmt}
+MEETING DURATION: {dur_min} minutes
+
+USER INPUT: "{text}"
+
+TIME OF DAY MAPPINGS:
+- morning = 10:00
+- afternoon = 15:00  
+- evening = 19:00
+- night = 21:00
+
+RULES:
+1. Calculate correct future date:
+   - "tomorrow" = {(now + timedelta(days=1)).strftime('%Y-%m-%d')}
+   - "saturday" = next Saturday from {now_date}
+   - "sunday" = next Sunday from {now_date}
+   - "next week" = add 7 days
+
+2. Combine date + time:
+   - "tomorrow evening" = {(now + timedelta(days=1)).strftime('%Y-%m-%d')} 19:00
+   - "saturday morning" = next Saturday 10:00
+
+3. Create end_iso by adding {dur_min} minutes to start_iso
+
+4. Format label as: "DDD DD MMM HH:MM AM/PM" (e.g., "Fri 11 Oct 07:00 PM")
+
+5. Must be at least 2 hours after current time ({now.isoformat()})
+
+EXAMPLE OUTPUT:
+{{
+  "slots": [
+    {{
+      "start_iso": "{example_start.isoformat()}",
+      "end_iso": "{example_end.isoformat()}",
+      "label": "{example_start.strftime('%a %d %b %I:%M %p')}",
+      "confidence": 0.85
+    }}
+  ]
+}}
+
+Return ONLY the JSON object. No markdown, no explanation."""
 
     print(f"[llm.parse_time] Calling LLM core for: {text}")
     

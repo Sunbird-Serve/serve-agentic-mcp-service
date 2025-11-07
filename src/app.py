@@ -2,7 +2,16 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from tools.wa_send import SendMessageInput, publish_wa_out
 from tools import llm_extract, llm_reply, calendar_create
-from tools import time_parse, llm_time_parse, llm_core, time_refine, intent_detect
+from tools import time_parse, llm_time_parse, llm_core, time_refine, intent_detect, llm_classify, llm_smart_edit
+from tools import faq_answer
+from tools import onboarding_parse
+from tools import consent, eligibility, preferences, slots, reminders, telemetry, profile
+from tools import policy
+from tools import prefs_polish, intent_orientation
+from tools import deferral, state
+from tools import onboarding_next
+from tools import llm_humanize
+from tools import knowledge, llm_qa
 
 app = FastAPI(title="serve-agentic-mcp-service", version="0.1.0")
 
@@ -16,13 +25,15 @@ async def list_tools():
     return {
         "tools": [
             {"name": "wa.send_message", "input": {"to": "str", "text": "str"}},
-            {"name": "llm.call", "input": {"prompt": "str", "format": "str", "temperature": "float"}, "description": "Generic LLM interface"},
+            {"name": "llm.call", "input": {"messages": "list", "temperature": "float", "max_tokens": "int"}, "description": "Generic LLM interface"},
             {"name": "intent.detect", "input": {"text": "str", "context": "str"}, "description": "Detect user intent (confirmation/refinement/rejection)"},
             {"name": "llm.extract_profile_fields"},
             {"name": "llm.generate_reply"},
             {"name": "llm.parse_time", "input": {"text": "str", "tz": "str", "duration_minutes": "int"}, "description": "Parse natural language time"},
             {"name": "time.parse_options", "input": {"text": "str", "tz": "str", "duration_minutes": "int"}, "description": "Smart time parser (fast + LLM)"},
             {"name": "time.refine_slots", "input": {"original_slots": "list", "refinement_text": "str"}, "description": "Refine/modify time slots"},
+            {"name": "llm.handle_smart_edit", "input": {"conversation_history": "list", "current_profile": "object", "user_input": "str"}, "description": "Smart profile editing"},
+            {"name": "llm.humanize_weekday_confirmation", "input": {"flow_state_summary": "str", "user_input": "str", "locale": "str"}, "description": "Human layer: weekday confirmation reply"},
             {"name": "calendar.create_event"}
         ]
     }
@@ -40,10 +51,30 @@ app.include_router(llm_core.router, prefix="/mcp")  # Generic LLM interface
 app.include_router(intent_detect.router, prefix="/mcp")  # Intent detection (prevents loops)
 app.include_router(llm_extract.router, prefix="/mcp")
 app.include_router(llm_reply.router, prefix="/mcp")
+app.include_router(llm_classify.router, prefix="/mcp")  # Response classification for eligibility
+app.include_router(llm_smart_edit.router, prefix="/mcp")  # Smart profile editing
 app.include_router(llm_time_parse.router, prefix="/mcp")  # Specialized LLM tool
 app.include_router(calendar_create.router, prefix="/mcp")
 app.include_router(time_parse.router, prefix="/mcp")  # Orchestrator tool
 app.include_router(time_refine.router, prefix="/mcp")  # Refinement tool
+app.include_router(llm_humanize.router, prefix="/mcp")  # Human layer tool
+app.include_router(faq_answer.router, prefix="/mcp")  # FAQ tool
+app.include_router(onboarding_parse.router, prefix="/mcp")  # Onboarding parser
+app.include_router(consent.router, prefix="/mcp")
+app.include_router(eligibility.router, prefix="/mcp")
+app.include_router(preferences.router, prefix="/mcp")
+app.include_router(slots.router, prefix="/mcp")
+app.include_router(reminders.router, prefix="/mcp")
+app.include_router(telemetry.router, prefix="/mcp")
+app.include_router(profile.router, prefix="/mcp")
+app.include_router(policy.router, prefix="/mcp")
+app.include_router(prefs_polish.router, prefix="/mcp")
+app.include_router(intent_orientation.router, prefix="/mcp")
+app.include_router(deferral.router, prefix="/mcp")
+app.include_router(state.router, prefix="/mcp")
+app.include_router(onboarding_next.router, prefix="/mcp")
+app.include_router(knowledge.router, prefix="/mcp")  # Knowledge search
+app.include_router(llm_qa.router, prefix="/mcp")  # LLM QA tool
 
 # Mount MCP JSON-RPC server AFTER all routes are registered
 # This way it doesn't override existing endpoints

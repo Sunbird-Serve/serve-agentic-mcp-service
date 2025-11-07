@@ -45,7 +45,7 @@ def _fast_parse(text: str, tz: str, duration_minutes: int) -> tuple[list[Slot], 
         part = part.strip()
         if not part:
             continue
-            
+
         dt = dateparser.parse(
             part, 
             settings={

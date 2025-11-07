@@ -27,6 +27,115 @@ class RefineResponse(BaseModel):
     original_count: int
     refined_count: int
 
+# ------------- PARSE REFINE (NEW) -------------
+
+class PolicyWindow(BaseModel):
+    start: str  # "HH:MM"
+    end: str    # "HH:MM"
+
+class ParsePolicy(BaseModel):
+    weekday_only: bool
+    window_24h: PolicyWindow
+    map_phrases: bool
+
+class ParseRefineRequest(BaseModel):
+    text: str
+    policy: ParsePolicy
+    need_at_least: int = 2
+    locale: str = "en-IN"
+
+class SimpleSlot(BaseModel):
+    day: str  # Mon..Fri
+    start: str  # HH:MM
+    end: str    # HH:MM
+    confidence: float
+
+class ParseRefineResponse(BaseModel):
+    slots: List[SimpleSlot]
+    notes: str | None = None
+
+_DAY_MAP = {
+    "mon": "Mon", "monday": "Mon",
+    "tue": "Tue", "tues": "Tue", "tuesday": "Tue",
+    "wed": "Wed", "wednesday": "Wed",
+    "thu": "Thu", "thur": "Thu", "thurs": "Thu", "thursday": "Thu",
+    "fri": "Fri", "friday": "Fri",
+}
+
+def _clamp_time(hhmm: str, window: PolicyWindow) -> str:
+    return hhmm  # simplified: assume mapped windows are within bounds
+
+def _phrase_windows(text: str) -> list[tuple[str, str, float, str]]:
+    """Return list of (start, end, conf, note) for known phrases."""
+    t = text.lower()
+    out: list[tuple[str, str, float, str]] = []
+    if any(p in t for p in ["lunch", "noon"]):
+        out.append(("12:30", "13:00", 0.9, "Mapped lunch/noon -> 12:30–13:00"))
+    if any(p in t for p in ["morning", "first half"]):
+        out.append(("08:00", "11:00", 0.8, "Mapped morning/first half -> 08:00–11:00"))
+    if any(p in t for p in ["afternoon", "post-lunch", "post lunch"]):
+        out.append(("14:00", "15:00", 0.8, "Mapped afternoon/post-lunch -> 14:00–15:00"))
+    # explicitly exclude evening
+    return out
+
+@router.post("/time.parser_refine", response_model=ParseRefineResponse)
+async def time_parser_refine(req: ParseRefineRequest) -> ParseRefineResponse:
+    """
+    Parse vague day/time phrases into constrained weekday slots.
+    Errors are returned as empty slots with notes; never throws.
+    """
+    try:
+        text = (req.text or "").strip()
+        notes: list[str] = []
+        slots: list[SimpleSlot] = []
+
+        # Detect days mentioned
+        import re
+        mentioned_days: list[str] = []
+        for key, out_day in _DAY_MAP.items():
+            if re.search(rf"\b{key}\b", text, re.I):
+                if out_day not in mentioned_days:
+                    mentioned_days.append(out_day)
+
+        if not mentioned_days and req.policy.weekday_only:
+            mentioned_days = ["Mon", "Tue", "Wed", "Thu", "Fri"]
+
+        # Map phrases to windows
+        windows: list[tuple[str, str, float, str]] = []
+        if req.policy.map_phrases:
+            windows = _phrase_windows(text)
+            for _, _, _, n in windows:
+                notes.append(n)
+
+        # If no phrase windows, default to policy window
+        if not windows:
+            w = req.policy.window_24h
+            windows = [(w.start, w.end, 0.6, "Defaulted to policy window")]
+
+        # Build slots combining days and windows
+        for day in mentioned_days:
+            for start, end, conf, _ in windows:
+                slots.append(SimpleSlot(day=day, start=_clamp_time(start, req.policy.window_24h), end=_clamp_time(end, req.policy.window_24h), confidence=conf))
+                if len(slots) >= max(req.need_at_least, 1):
+                    break
+            if len(slots) >= max(req.need_at_least, 1):
+                break
+
+        # If still not enough, pad across remaining weekdays
+        if len(slots) < req.need_at_least:
+            remaining_days = [d for d in ["Mon","Tue","Wed","Thu","Fri"] if d not in mentioned_days]
+            for day in remaining_days:
+                for start, end, conf, _ in windows:
+                    slots.append(SimpleSlot(day=day, start=start, end=end, confidence=conf * 0.9))
+                    if len(slots) >= req.need_at_least:
+                        break
+                if len(slots) >= req.need_at_least:
+                    break
+
+        return ParseRefineResponse(slots=slots, notes="; ".join(notes) if notes else None)
+    except Exception as e:
+        return ParseRefineResponse(slots=[], notes=f"Failed to parse: {type(e).__name__}")
+
 # ------------- REFINEMENT LOGIC -------------
 
 def _detect_refinement_intent(text: str) -> tuple[str, str]:

@@ -141,18 +141,27 @@ TOOL_REGISTRY = {
     "llm.call": {
         "endpoint": "/mcp/llm.call",
         "method": "POST",
-        "description": "Generic LLM interface for any task",
+        "description": "General-purpose LLM call tool with messages array (system/user/assistant) for contextual responses",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "prompt": {"type": "string", "description": "Prompt for the LLM"},
-                "format": {"type": "string", "enum": ["json", "text"], "default": "json"},
-                "temperature": {"type": "number", "minimum": 0, "maximum": 1, "default": 0},
-                "max_tokens": {"type": "integer", "default": 200},
-                "context_window": {"type": "integer", "default": 1536},
-                "threads": {"type": "integer", "default": 4}
+                "messages": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "role": {"type": "string", "enum": ["system", "user", "assistant"]},
+                            "content": {"type": "string"}
+                        },
+                        "required": ["role", "content"]
+                    },
+                    "description": "Array of message objects with role and content"
+                },
+                "max_tokens": {"type": "integer", "default": 150, "description": "Maximum tokens to generate"},
+                "temperature": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.7, "description": "Sampling temperature"},
+                "format": {"type": "string", "enum": ["json", "text"], "default": "text", "description": "Response format: json or text"}
             },
-            "required": ["prompt"]
+            "required": ["messages"]
         }
     },
     "intent.detect": {
@@ -201,6 +210,355 @@ TOOL_REGISTRY = {
             "required": ["purpose", "state"]
         }
     },
+    "llm.classify_response": {
+        "endpoint": "/mcp/llm.classify_response",
+        "method": "POST",
+        "description": "Intelligently classify user responses to eligibility questions using LLM",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "question_type": {"type": "string", "enum": ["consent", "age", "device", "commitment", "language_comfort"], "description": "Type of eligibility question"},
+                "user_input": {"type": "string", "description": "User's response text"},
+                "context": {"type": "object", "description": "Additional context (question_text, locale, etc.)"}
+            },
+            "required": ["question_type", "user_input"]
+        }
+    },
+    "llm.handle_smart_edit": {
+        "endpoint": "/mcp/llm.handle_smart_edit",
+        "method": "POST",
+        "description": "Intelligently handle teaching preference editing with context-aware understanding",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "conversation_history": {"type": "array", "items": {"type": "string"}, "description": "List of conversation messages"},
+                "current_profile": {"type": "object", "description": "Current teaching profile to edit"},
+                "user_input": {"type": "string", "description": "User's edit request text"}
+            },
+            "required": ["conversation_history", "current_profile", "user_input"]
+        }
+    },
+    "llm.humanize_weekday_confirmation": {
+        "endpoint": "/mcp/llm.humanize_weekday_confirmation",
+        "method": "POST",
+        "description": "Human-layer response for weekday 8–15 confirmation with strict JSON output",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "flow_state_summary": {"type": "string"},
+                "user_input": {"type": "string"},
+                "locale": {"type": "string", "default": "en-IN"}
+            },
+            "required": ["flow_state_summary", "user_input"]
+        }
+    },
+    "faq.answer": {
+        "endpoint": "/mcp/faq.answer",
+        "method": "POST",
+        "description": "Answer FAQs using KB retrieval and concise composition",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "question": {"type": "string"},
+                "policy_context": {"type": "string"},
+                "kb_scope": {"type": "string", "default": "onboarding-basic"},
+                "top_k": {"type": "integer", "default": 3},
+                "state": {"type": "string", "description": "Optional: current onboarding state for routing"}
+            },
+            "required": ["question", "policy_context"]
+        }
+    },
+    "knowledge.search": {
+        "endpoint": "/mcp/knowledge.search",
+        "method": "POST",
+        "description": "Search knowledge base for FAQ snippets relevant to a user query",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "User's question or search query"},
+                "top_k": {"type": "integer", "default": 5, "minimum": 1, "maximum": 20, "description": "Number of snippets to return"},
+                "policy_version": {"type": "string", "description": "Optional: policy version for filtering (e.g., 'v1.2')"}
+            },
+            "required": ["query"]
+        }
+    },
+    "llm.qa": {
+        "endpoint": "/mcp/llm.qa",
+        "method": "POST",
+        "description": "Generate FAQ answer using LLM with RAG context from knowledge.search",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "question": {"type": "string", "description": "User's question"},
+                "snippets": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "title": {"type": "string"},
+                            "text": {"type": "string"}
+                        },
+                        "required": ["id", "title", "text"]
+                    },
+                    "description": "RAG context from knowledge.search"
+                },
+                "policy_version": {"type": "string", "description": "Optional policy version"},
+                "knowledge_version": {"type": "string", "description": "Optional knowledge version"},
+                "user_profile": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "tz": {"type": "string"}
+                    },
+                    "description": "Optional user context"
+                }
+            },
+            "required": ["question", "snippets"]
+        }
+    },
+    "onboarding.parse_message": {
+        "endpoint": "/mcp/onboarding.parse_message",
+        "method": "POST",
+        "description": "Parse onboarding messages for intents, consent, constraints, availability, eligibility hints",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "locale": {"type": "string", "default": "en-IN"},
+                "state": {"type": "string", "description": "Optional: Current onboarding state for context-aware parsing"}
+            },
+            "required": ["text"]
+        }
+    },
+    "consent.record": {
+        "endpoint": "/mcp/consent.record",
+        "method": "POST",
+        "description": "Record volunteer consent for onboarding",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "volunteerId": {"type": "string"},
+                "consentGiven": {"type": "boolean"}
+            },
+            "required": ["volunteerId", "consentGiven"]
+        }
+    },
+    "deferral.create": {
+        "endpoint": "/mcp/deferral.create",
+        "method": "POST",
+        "description": "Create a deferral record when volunteer wants to postpone onboarding",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "volunteerId": {"type": "string"},
+                "reason": {"type": "string"},
+                "until_ISO": {"type": "string", "description": "ISO8601 datetime when to contact again"},
+                "idempotency_key": {"type": "string", "description": "Optional key to prevent duplicate deferrals"}
+            },
+            "required": ["volunteerId", "reason", "until_ISO"]
+        }
+    },
+    "state.get": {
+        "endpoint": "/mcp/state.get",
+        "method": "POST",
+        "description": "Get the current onboarding state for a volunteer (returns WELCOME if new)",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "volunteerId": {"type": "string"}
+            },
+            "required": ["volunteerId"]
+        }
+    },
+    "state.advance": {
+        "endpoint": "/mcp/state.advance",
+        "method": "POST",
+        "description": "Advance volunteer's onboarding state based on intent (with validation)",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "volunteerId": {"type": "string"},
+                "intent": {"type": "string", "description": "Intent to advance (e.g., 'to_ELIGIBILITY_PART1')"},
+                "idempotency_key": {"type": "string", "description": "Optional key to prevent duplicate transitions"}
+            },
+            "required": ["volunteerId", "intent"]
+        }
+    },
+    "eligibility.check": {
+        "endpoint": "/mcp/eligibility.check",
+        "method": "POST",
+        "description": "Check volunteer eligibility. For PART1 (age+device only), weeklyCommitmentHours can be omitted. For PART2, all fields required.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ageYears": {"type": "integer"},
+                "hasDevice": {"type": "boolean"},
+                "weeklyCommitmentHours": {"type": "number", "minimum": 0}
+            },
+            "required": ["ageYears", "hasDevice"]
+        }
+    },
+    "preferences.save": {
+        "endpoint": "/mcp/preferences.save",
+        "method": "POST",
+        "description": "Save volunteer preferences (days/time_windows/timezone)",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "volunteerId": {"type": "string"},
+                "prefs": {
+                    "type": "object",
+                    "properties": {
+                        "days": {"type": "array", "items": {"type": "string"}},
+                        "time_windows": {
+                            "type": "array",
+                            "items": {
+                                "anyOf": [
+                                    {"type": "string"},
+                                    {"type": "object", "properties": {"start": {"type": "string"}, "end": {"type": "string"}}, "required": ["start","end"]}
+                                ]
+                            }
+                        },
+                        "timezone": {"type": "string"}
+                    },
+                    "required": ["days", "time_windows", "timezone"]
+                },
+                "policy_version": {"type": "string"},
+                "idempotency_key": {"type": "string"}
+            },
+            "required": ["volunteerId", "prefs"]
+        }
+    },
+    "policy.scheduling": {
+        "endpoint": "/mcp/policy.scheduling",
+        "method": "POST",
+        "description": "Return scheduling policy (weekend gate, blackout dates, version)",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "region_id": {"type": "string"}
+            }
+        }
+    },
+    "prefs.confirmation_polish": {
+        "endpoint": "/mcp/prefs.confirmation_polish",
+        "method": "POST",
+        "description": "Generate one-line WhatsApp confirmation for parsed day/time prefs",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "days": {"type": "array", "items": {"type": "string"}},
+                "time_windows": {"type": "array", "items": {"type": "object", "properties": {"start": {"type": "string"}, "end": {"type": "string"}}, "required": ["start","end"]}},
+                "timezone": {"type": "string"},
+                "weekend_gate": {"type": "boolean"}
+            },
+            "required": ["days","time_windows","timezone","weekend_gate"]
+        }
+    },
+    "intent.classify_orientation": {
+        "endpoint": "/mcp/intent.classify_orientation",
+        "method": "POST",
+        "description": "Classify if text refers to orientation or class (or unclear)",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "state": {"type": "string"}
+            },
+            "required": ["text"]
+        }
+    },
+    "slots.propose": {
+        "endpoint": "/mcp/slots.propose",
+        "method": "POST",
+        "description": "Propose slots based on time band and day preferences. If daysWhitelist is null, no day filter is applied (server defaults to weekdays). If seedTimeIso is provided, the server infers an appropriate band and centers proposals around that time.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "volunteerId": {"type": "string"},
+                "timeBand": {"type": ["string","null"], "description": "Optional. '8-11' | '12-15' | 'MORNING' | 'AFTERNOON'"},
+                "daysWhitelist": {
+                    "anyOf": [
+                        {"type": "array", "items": {"type": "string"}},
+                        {"type": "null"}
+                    ],
+                    "description": "Optional list of weekdays (Mon, Tue, etc.). If null, returns slots across all weekdays."
+                },
+                "limit": {"type": "integer", "default": 2},
+                "seedTimeIso": {"type": ["string", "null"], "description": "Optional ISO time to seed proposals (e.g., parsed 'Tomorrow 3 pm')"},
+                "seedTimesIso": {"type": "array", "items": {"type": "string"}, "description": "Optional list of ISO seed times to propose directly"},
+                "tz": {"type": ["string", "null"], "default": "Asia/Kolkata", "description": "Timezone for seedTimeIso"}
+            },
+            "required": ["volunteerId"]
+        }
+    },
+    "slot.hold": {
+        "endpoint": "/mcp/slot.hold",
+        "method": "POST",
+        "description": "Temporarily hold a slot",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "slotId": {"type": "string"}
+            },
+            "required": ["slotId"]
+        }
+    },
+    "slot.book": {
+        "endpoint": "/mcp/slot.book",
+        "method": "POST",
+        "description": "Confirm a held slot",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "holdId": {"type": "string"}
+            },
+            "required": ["holdId"]
+        }
+    },
+    "reminder.create": {
+        "endpoint": "/mcp/reminder.create",
+        "method": "POST",
+        "description": "Create a reminder",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "when_ISO": {"type": "string"},
+                "reason": {"type": "string"},
+                "volunteerId": {"type": "string"}
+            },
+            "required": ["when_ISO", "reason"]
+        }
+    },
+    "telemetry.emit": {
+        "endpoint": "/mcp/telemetry.emit",
+        "method": "POST",
+        "description": "Emit telemetry event",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "event": {"type": "string"},
+                "payload": {"type": "object"}
+            },
+            "required": ["event", "payload"]
+        }
+    },
+    "onboarding.next": {
+        "endpoint": "/mcp/onboarding.next",
+        "method": "POST",
+        "description": "[DEPRECATED] Use discrete tools instead: onboarding.parse_message, eligibility.check, llm.call, etc. Agent should own conversation orchestration.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session": {"type": "object"},
+                "user_text": {"type": "string"},
+                "locale": {"type": "string", "default": "en-IN"}
+            },
+            "required": ["session", "user_text"]
+        },
+        "deprecated": True
+    },
     "llm.parse_time": {
         "endpoint": "/mcp/llm.parse_time",
         "method": "POST",
@@ -228,6 +586,36 @@ TOOL_REGISTRY = {
                 "duration_minutes": {"type": "integer", "default": 30}
             },
             "required": ["text"]
+        }
+    },
+    "time.parser_refine": {
+        "endpoint": "/mcp/time.parser_refine",
+        "method": "POST",
+        "description": "Parse vague day/time phrases into weekday-constrained slots",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "policy": {
+                    "type": "object",
+                    "properties": {
+                        "weekday_only": {"type": "boolean"},
+                        "window_24h": {
+                            "type": "object",
+                            "properties": {
+                                "start": {"type": "string"},
+                                "end": {"type": "string"}
+                            },
+                            "required": ["start", "end"]
+                        },
+                        "map_phrases": {"type": "boolean"}
+                    },
+                    "required": ["weekday_only", "window_24h", "map_phrases"]
+                },
+                "need_at_least": {"type": "integer", "default": 2},
+                "locale": {"type": "string", "default": "en-IN"}
+            },
+            "required": ["text", "policy"]
         }
     },
     "time.refine_slots": {
@@ -485,7 +873,7 @@ async def mcp_endpoint(request: Request):
             async def event_stream():
                 """Generate SSE events"""
                 # Send initial event
-                yield f"event: message\ndata: {json.dumps({'status': 'processing'})}\n\n"
+                yield f"event: message\ndata: {json.dumps({'status': 'processing'}, ensure_ascii=False)}\n\n"
                 
                 # Process request
                 if isinstance(body, dict):
@@ -517,7 +905,7 @@ async def mcp_endpoint(request: Request):
             if response is None:
                 return JSONResponse(content=None, status_code=204)
             
-            return JSONResponse(content=response.dict(exclude_none=True))
+            return JSONResponse(content=response.dict(exclude_none=True), media_type="application/json; charset=utf-8")
         
         # Handle batch requests (array of requests)
         elif isinstance(body, list):
@@ -528,7 +916,7 @@ async def mcp_endpoint(request: Request):
                 if response:
                     responses.append(response.dict(exclude_none=True))
             
-            return JSONResponse(content=responses)
+            return JSONResponse(content=responses, media_type="application/json; charset=utf-8")
         
         else:
             return JSONResponse(
