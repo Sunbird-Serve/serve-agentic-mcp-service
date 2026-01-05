@@ -86,6 +86,53 @@ class LLMContentResponse(BaseModel):
 import re
 _JSON_BLOCK = re.compile(r'(\{.*\}|\[.*\])', re.S)
 
+
+def _safe_preview(text: str, limit: int = 200) -> str:
+    """Return an ASCII-safe preview for logging."""
+    snippet = text[:limit]
+    try:
+        return snippet.encode("cp1252", errors="ignore").decode("cp1252")
+    except Exception:
+        return snippet.encode("ascii", errors="ignore").decode("ascii", errors="ignore")
+
+
+_UNICODE_REPLACEMENTS = {
+    "→": "->",
+    "←": "<-",
+    "↔": "<->",
+    "↗": "->",
+    "↘": "->",
+    "↠": "->",
+    "↞": "<-",
+    "↦": "->",
+    "↤": "<-",
+    "↩": "<-",
+    "↪": "->",
+    "↺": "around",
+    "↻": "around",
+    "✓": "check",
+    "✔": "check",
+    "✕": "x",
+    "✖": "x",
+    "✗": "x",
+    "✘": "x",
+    "•": "-",
+    "★": "*",
+    "☆": "*",
+}
+
+
+def _make_cp1252_safe(text: str) -> str:
+    cleaned = text
+    for src, dest in _UNICODE_REPLACEMENTS.items():
+        if src in cleaned:
+            cleaned = cleaned.replace(src, dest)
+    try:
+        cleaned.encode("cp1252")
+        return cleaned
+    except UnicodeEncodeError:
+        return cleaned.encode("cp1252", errors="replace").decode("cp1252")
+
 def extract_json_from_text(text: str) -> Optional[str]:
     """
     Extract JSON from LLM response that might have markdown or extra text.
@@ -244,8 +291,10 @@ async def _call_claude_with_messages(
                     else:
                         return None, "Claude returned invalid JSON format", usage, model_name
             
+            sanitized = _make_cp1252_safe(response_text)
             print(f"[llm.core] Claude success, received {len(response_text)} chars")
-            return response_text, None, usage, model_name
+            print(f"[llm.core] Claude preview: '{_safe_preview(sanitized)}'")
+            return sanitized, None, usage, model_name
             
     except httpx.TimeoutException as e:
         error = f"Claude timeout after {HTTP_TIMEOUT.read}s"
@@ -286,8 +335,10 @@ async def _call_claude_with_messages(
                                 "total_tokens": usage_info.get("input_tokens", 0) + usage_info.get("output_tokens", 0)
                             }
                         model_name = payload.get("model") or latest
+                        sanitized = _make_cp1252_safe(response_text)
                         print(f"[llm.core] Claude success (alias), received {len(response_text)} chars")
-                        return response_text, None, usage, model_name
+                        print(f"[llm.core] Claude preview (alias): '{_safe_preview(sanitized)}'")
+                        return sanitized, None, usage, model_name
                 except Exception as e2:
                     err2 = f"Claude alias retry failed: {type(e2).__name__}: {str(e2)}"
                     print(f"[llm.core] {err2}")
@@ -353,8 +404,10 @@ async def _call_claude(
             if not response_text:
                 return None, "Claude returned empty text"
             
+            sanitized = _make_cp1252_safe(response_text)
             print(f"[llm.core] Claude success, received {len(response_text)} chars")
-            return response_text, None
+            print(f"[llm.core] Claude preview: '{_safe_preview(sanitized)}'")
+            return sanitized, None
             
     except httpx.TimeoutException as e:
         error = f"Claude timeout after {HTTP_TIMEOUT.read}s"
@@ -399,8 +452,10 @@ async def _call_claude(
                         response_text = content_blocks[0].get("text", "").strip()
                         if not response_text:
                             return None, "Claude returned empty text"
+                        sanitized = _make_cp1252_safe(response_text)
                         print(f"[llm.core] Claude success (alias), received {len(response_text)} chars")
-                        return response_text, None
+                        print(f"[llm.core] Claude preview (alias): '{_safe_preview(sanitized)}'")
+                        return sanitized, None
                 except Exception as e2:
                     err2 = f"Claude alias retry failed: {type(e2).__name__}: {str(e2)}"
                     print(f"[llm.core] {err2}")
@@ -451,8 +506,10 @@ async def _call_ollama(
             if not response_text:
                 return None, "Ollama returned empty response"
             
+            sanitized = _make_cp1252_safe(response_text)
             print(f"[llm.core] Ollama success, received {len(response_text)} chars")
-            return response_text, None
+            print(f"[llm.core] Ollama preview: '{_safe_preview(sanitized)}'")
+            return sanitized, None
             
     except httpx.TimeoutException as e:
         error = f"Ollama timeout after {HTTP_TIMEOUT.read}s"
@@ -524,11 +581,13 @@ async def llm_call_endpoint(req: LLMMessagesRequest):
                 model=model_name
             )
         
+        safe_text = _make_cp1252_safe(response_text) if response_text else response_text
+
         # Return in content field (per spec)
         return LLMContentResponse(
-            content=response_text,
-            message=response_text,  # Alternative field for backward compatibility
-            text=response_text,  # Alternative field for backward compatibility
+            content=safe_text,
+            message=safe_text,  # Alternative field for backward compatibility
+            text=safe_text,  # Alternative field for backward compatibility
             usage=usage,
             model=model_name
         )

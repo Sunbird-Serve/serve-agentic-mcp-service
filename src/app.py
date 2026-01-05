@@ -11,7 +11,8 @@ from tools import prefs_polish, intent_orientation
 from tools import deferral, state
 from tools import onboarding_next
 from tools import llm_humanize
-from tools import knowledge, llm_qa
+from tools import knowledge, llm_qa, onboarding_turns
+from tools import serve_needs
 
 app = FastAPI(title="serve-agentic-mcp-service", version="0.1.0")
 
@@ -42,7 +43,7 @@ async def list_tools():
 @app.post("/mcp/wa.send_message")
 async def wa_send_message(payload: SendMessageInput):
     try:
-        result = await publish_wa_out(payload.to, payload.text)
+        result = await publish_wa_out(payload.to, payload.text, payload.buttons)
         return JSONResponse(result)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to send message: {e!r}")
@@ -75,6 +76,8 @@ app.include_router(state.router, prefix="/mcp")
 app.include_router(onboarding_next.router, prefix="/mcp")
 app.include_router(knowledge.router, prefix="/mcp")  # Knowledge search
 app.include_router(llm_qa.router, prefix="/mcp")  # LLM QA tool
+app.include_router(onboarding_turns.router, prefix="/mcp")  # Unified onboarding turn handler
+app.include_router(serve_needs.router, prefix="/mcp")  # Serve needs list
 
 # Mount MCP JSON-RPC server AFTER all routes are registered
 # This way it doesn't override existing endpoints

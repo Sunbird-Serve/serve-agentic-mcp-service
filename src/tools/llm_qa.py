@@ -3,6 +3,7 @@ LLM QA Tool
 - Generate FAQ answers using LLM with RAG context from knowledge.search
 - Provides cleaner abstraction than generic llm.call for QA tasks
 """
+import re
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from typing import List, Dict, Optional
@@ -11,6 +12,65 @@ from tools.llm_core import call_llm_for_text
 router = APIRouter()
 
 # --------- Models ---------
+
+QUESTION_PREFIXES = (
+    "would ",
+    "will ",
+    "do ",
+    "does ",
+    "did ",
+    "can ",
+    "could ",
+    "should ",
+    "shall ",
+    "is ",
+    "are ",
+    "am ",
+    "have ",
+    "has ",
+    "had ",
+    "may ",
+    "might ",
+    "what ",
+    "when ",
+    "where ",
+    "why ",
+    "how ",
+    "who ",
+    "whom ",
+    "whose ",
+)
+
+
+def _strip_trailing_followups(text: str) -> str:
+    """
+    Remove trailing sentences that look like follow-up questions.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return stripped
+
+    sentences = [
+        segment.strip()
+        for segment in re.findall(r"[^.!?]+[.!?]*", stripped)
+        if segment.strip()
+    ]
+
+    def _looks_like_question(sentence: str) -> bool:
+        lower = sentence.lower()
+        if lower.endswith("?"):
+            return True
+        for prefix in QUESTION_PREFIXES:
+            if lower.startswith(prefix):
+                return True
+        return False
+
+    while sentences and _looks_like_question(sentences[-1]):
+        sentences.pop()
+
+    cleaned = " ".join(sentences).strip()
+    return cleaned
+
 
 class Snippet(BaseModel):
     id: str
@@ -68,11 +128,11 @@ async def _generate_qa_answer(
     # Build system prompt (per spec)
     system_prompt = """You are Sia, SERVE's onboarding assistant. Answer the volunteer's question in 2–4 short lines.
 
-Use only the provided snippets/policy. Do NOT promise payment. 
+Use only the provided snippets/policy. Do NOT promise payment.
 
 If unsure, say so briefly and suggest asking the coordinator in orientation.
 
-End with: "Shall we schedule your orientation?"
+Provide a self-contained answer with no follow-up questions, no calls to action, and no scheduling prompts.
 
 Return plain text (no JSON, no markdown)."""
     
@@ -111,9 +171,16 @@ User question: {question}"""
         # Use first snippet as fallback
         if snippets:
             fallback_text = snippets[0].text
-            answer_text = f"{fallback_text}\n\nShall we schedule your orientation?"
+            answer_text = fallback_text
         else:
-            answer_text = "I'm not sure about that. Would you like to ask the coordinator during orientation?\n\nShall we schedule your orientation?"
+            answer_text = "I'm not sure about that. You can ask the coordinator during orientation."
+
+    answer_text = _strip_trailing_followups(answer_text)
+    if not answer_text:
+        if snippets:
+            answer_text = snippets[0].text
+        else:
+            answer_text = "I don't have that information right now. Please ask the coordinator during orientation."
     
     return answer_text.strip(), snippet_ids
 
@@ -127,7 +194,6 @@ async def llm_qa(req: LLMQARequest) -> LLMQAResponse:
     This tool provides a cleaner abstraction than generic llm.call for QA tasks.
     It takes snippets from knowledge.search and generates a concise, policy-safe answer.
     
-    The answer will always end with "Shall we schedule your orientation?" as per spec.
     """
     answer, snippet_ids = await _generate_qa_answer(
         question=req.question,

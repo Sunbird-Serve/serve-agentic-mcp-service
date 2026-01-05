@@ -165,7 +165,7 @@ async def generate_reply(body: ReplyInput):
         )
     
     # Stage 2: LLM enhancement for generic templates
-    print(f"[llm.generate_reply] Template not confident, calling LLM for enhancement")
+    print("[llm.generate_reply] Template not confident, calling LLM for enhancement")
     enhanced_text = await _llm_enhance(
         body.purpose,
         body.state,
@@ -175,7 +175,11 @@ async def generate_reply(body: ReplyInput):
         body.user_name
     )
     
-    print(f"[llm.generate_reply] LLM enhanced: '{enhanced_text}'")
+    try:
+        preview = enhanced_text.encode("cp1252", errors="ignore").decode("cp1252")
+        print(f"[llm.generate_reply] LLM enhanced (ascii preview): '{preview}'")
+    except Exception:
+        print("[llm.generate_reply] LLM enhanced (preview unavailable due to encoding)")
     
     return ReplyOutput(
         text=enhanced_text,

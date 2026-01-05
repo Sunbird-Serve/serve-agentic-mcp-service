@@ -80,14 +80,15 @@ async def _compose_answer(policy: str, question: str, snippets: List[Source], sc
 
     system = (
         "You are a concise FAQ assistant for a volunteer onboarding flow. "
-        "Answer briefly (<= 2 sentences), policy-safe, and end with ONE short bridge question to return to the current step. "
+        "Answer briefly (<= 2 sentences) and stay policy-safe. "
+        "Provide only the factual answer with no follow-up question, call-to-action, or scheduling prompt. "
         "Output plain text only."
     )
     user = (
         f"Policy context: {policy}\n\n"
         f"KB snippets:\n{kb_concat if kb_concat else '(none)'}\n\n"
         f"Question: {question}\n\n"
-        f"Write 1-2 sentence answer, then 1 short question to continue."
+        f"Write a short answer (1-2 sentences) with no follow-up question."
     )
 
     text, error = await call_llm_for_text(
@@ -105,24 +106,12 @@ async def _compose_answer(policy: str, question: str, snippets: List[Source], sc
             answer = "Here is a quick summary."
         else:
             answer = (sents[0] + ('. ' + sents[1] + '.') if len(sents) > 1 else '.')
-        bridge = "Shall we continue with the current step?"
         conf = max((snippets[0].confidence if snippets else 0.4), 0.4)
-        return FAQResponse(answer=answer, bridge=bridge, sources=snippets or None, confidence=conf)
+        return FAQResponse(answer=answer, bridge="", sources=snippets or None, confidence=conf)
 
-    # Split answer and bridge; prefer taking the last question as bridge and the rest as answer
     lines = text.strip().splitlines()
     merged = " ".join([ln.strip() for ln in lines if ln.strip()])
-    if '?' in merged:
-        parts_q = merged.split('?')
-        bridge_candidate = parts_q[-2].strip() + '?' if len(parts_q) >= 2 else merged.strip()
-        # Everything before the last question mark becomes the answer component
-        answer_candidate = '?'.join(parts_q[:-1]).rstrip('?').strip()
-        answer_text = answer_candidate.strip()
-        bridge = bridge_candidate.strip()
-    else:
-        # No explicit question; synthesize a bridge
-        answer_text = merged
-        bridge = "Does that help, and shall we proceed with the next step?"
+    answer_text = merged.strip()
 
     # Enforce <= 2 sentences for answer
     sents = [s.strip() for s in re.split(r"[.!?]", answer_text) if s.strip()]
@@ -131,33 +120,11 @@ async def _compose_answer(policy: str, question: str, snippets: List[Source], sc
     elif sents and not answer_text.endswith('.'):
         answer_text = answer_text + '.'
 
-    # Ensure bridge is exactly one short question
-    if '?' in bridge:
-        bridge = bridge.split('?')[0].strip() + '?'
-    else:
-        bridge = "Shall we continue with the current step?"
-
     # Confidence: boost if input looks like a question and we had KB support
     base_conf = max([s.confidence for s in snippets], default=0.5)
     is_question = '?' in question or question.lower().startswith(('what','when','how','why','can','do','does','is','are'))
     conf = min(1.0, (base_conf + (0.2 if is_question else -0.1)))
-    # De-dup identical lines and near-duplicates differing only by trailing punctuation
-    def _norm(s: str) -> str:
-        return re.sub(r'[\s]+', ' ', s.strip().rstrip('.!?')).lower()
-    seen = set()
-    ordered: list[str] = []
-    for part in [answer_text, bridge]:
-        if not part:
-            continue
-        key = _norm(part)
-        if key in seen:
-            continue
-        seen.add(key)
-        ordered.append(part)
-    answer_out = ordered[0] if ordered else ""
-    bridge_out = ordered[1] if len(ordered) > 1 else ""
-
-    return FAQResponse(answer=answer_out, bridge=bridge_out, sources=snippets or None, confidence=max(0.0, conf), action="answer")
+    return FAQResponse(answer=answer_text, bridge="", sources=snippets or None, confidence=max(0.0, conf), action="answer")
 
 # --------- Endpoint ---------
 

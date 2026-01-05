@@ -45,8 +45,10 @@ class TimeWindow(BaseModel):
 
 class EligibilityHints(BaseModel):
     age_ok: Optional[bool] = None
+    age_years: Optional[int] = None
     device_ok: Optional[bool] = None
     has_device: Optional[bool] = None
+    device_type: Optional[str] = None
     commitment_hint: Optional[str] = None
     weekly_commitment_hours: Optional[float] = None
     same_day_request: Optional[bool] = None
@@ -204,8 +206,41 @@ def _parse_availability(t: str) -> List[AvailabilityItem]:
 
 def _parse_eligibility_hints(t: str, state: Optional[str] = None) -> EligibilityHints:
     low = t.lower()
-    age_ok = True if any(w in low for w in ["i am 18", "i am 19", "i am 20", "i'm 18", "i'm 19", "i'm 20"]) else None
-    device_ok = True if any(w in low for w in ["smartphone", "phone", "laptop", "tablet"]) else None
+    age_ok: Optional[bool] = True if any(w in low for w in ["i am 18", "i am 19", "i am 20", "i'm 18", "i'm 19", "i'm 20"]) else None
+    age_years: Optional[int] = None
+    age_patterns = [
+        r"(?:i am|i'm|im|age is|i turned|turning)\s*(\d{1,2})",
+        r"(\d{1,2})\s*(?:yrs?|years?|y/o|yo)\b",
+    ]
+    for pat in age_patterns:
+        match = re.search(pat, low)
+        if match:
+            try:
+                age_years = int(match.group(1))
+                break
+            except (TypeError, ValueError):
+                continue
+    if age_years is not None:
+        if age_ok is None:
+            age_ok = age_years >= 18
+        else:
+            # trust explicit number more if conflicting
+            age_ok = age_years >= 18 or age_ok
+    device_type: Optional[str] = None
+    device_words = {
+        "laptop": ["laptop", "macbook", "chromebook", "notebook"],
+        "desktop": ["desktop", "pc"],
+        "tablet": ["tablet", "ipad"],
+        "smartphone": ["smartphone", "phone", "iphone", "android"],
+    }
+    device_ok = None
+    for dtype, words in device_words.items():
+        if any(word in low for word in words):
+            device_type = dtype
+            device_ok = True
+            break
+    if device_ok is None:
+        device_ok = True if any(w in low for w in ["smartphone", "phone", "laptop", "tablet"]) else None
     has_device = device_ok
     weekly_hours: Optional[float] = None
     commitment_hint = None
@@ -237,8 +272,28 @@ def _parse_eligibility_hints(t: str, state: Optional[str] = None) -> Eligibility
         # Age confirmation
         if any(p in low for p in ["i am", "yes i am", "i'm"]) and age_ok is None:
             age_ok = True
-    conf = 0.5 if any([age_ok, device_ok, weekly_hours is not None]) else 0.3
-    return EligibilityHints(age_ok=age_ok, device_ok=device_ok, has_device=has_device, weekly_commitment_hours=weekly_hours, commitment_hint=commitment_hint, confidence=conf)
+    signal_score = 0.0
+    if age_years is not None:
+        signal_score += 0.3
+    if age_ok is not None:
+        signal_score += 0.2
+    if device_type:
+        signal_score += 0.3
+    elif device_ok is not None:
+        signal_score += 0.2
+    if weekly_hours is not None:
+        signal_score += 0.2
+    conf = min(0.95, 0.35 + signal_score) if signal_score > 0 else 0.3
+    return EligibilityHints(
+        age_ok=age_ok,
+        age_years=age_years,
+        device_ok=device_ok,
+        has_device=has_device,
+        device_type=device_type,
+        weekly_commitment_hours=weekly_hours,
+        commitment_hint=commitment_hint,
+        confidence=conf
+    )
 
 async def _llm_enhance_parse(text: str, locale: str, rule_result: ParseResponse, state: Optional[str] = None) -> Optional[ParseResponse]:
     """
@@ -416,8 +471,10 @@ Return ONLY the JSON object."""
         eligibility_data = data.get("eligibility", {})
         enhanced_eligibility = EligibilityHints(
             age_ok=eligibility_data.get("age_ok", rule_result.eligibility.age_ok if rule_result.eligibility else None),
+            age_years=eligibility_data.get("age_years", rule_result.eligibility.age_years if rule_result.eligibility else None),
             device_ok=eligibility_data.get("device_ok", rule_result.eligibility.device_ok if rule_result.eligibility else None),
             has_device=eligibility_data.get("has_device", rule_result.eligibility.has_device if rule_result.eligibility else None),
+            device_type=eligibility_data.get("device_type", rule_result.eligibility.device_type if rule_result.eligibility else None),
             weekly_commitment_hours=eligibility_data.get("weekly_commitment_hours", rule_result.eligibility.weekly_commitment_hours if rule_result.eligibility else None),
             same_day_request=eligibility_data.get("same_day_request", getattr(rule_result.eligibility, 'same_day_request', None) if rule_result.eligibility else None),
             confidence=eligibility_data.get("confidence", rule_result.eligibility.confidence if rule_result.eligibility else 0.3)

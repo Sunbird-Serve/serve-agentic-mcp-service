@@ -16,7 +16,7 @@ Agent should implement state machine and orchestrate tool calls.
 """
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import httpx
 import json
 
@@ -213,6 +213,109 @@ CRITICAL: Return ONLY the JSON object, nothing else. Example format:
 {{"message": "Hello!", "next_state": "CONSENT", "tool_calls": [], "quick_replies": ["Yes", "No"]}}
 """
 
+def _merge_eligibility_signals(
+    profile_elig: Dict[str, Any], parsed_elig: Dict[str, Any]
+) -> Tuple[Optional[bool], Optional[bool], Dict[str, Any]]:
+    """Merge parsed eligibility hints with stored profile data."""
+    updates: Dict[str, Any] = {}
+
+    stored_age = profile_elig.get("q2_age")
+    age_ok = parsed_elig.get("age_ok")
+    if age_ok is None and stored_age is not None:
+        age_ok = bool(stored_age)
+    elif age_ok is not None:
+        age_flag = bool(age_ok)
+        if stored_age is None or bool(stored_age) != age_flag:
+            updates["q2_age"] = age_flag
+        age_ok = age_flag
+
+    age_years = parsed_elig.get("age_years")
+    if age_years is not None:
+        try:
+            years_int = int(age_years)
+            updates["age_years"] = years_int
+            if age_ok is None:
+                inferred_flag = years_int >= 18
+                updates.setdefault("q2_age", inferred_flag)
+                age_ok = inferred_flag
+        except (TypeError, ValueError):
+            pass
+
+    stored_device = profile_elig.get("q3_device")
+    has_device = parsed_elig.get("has_device")
+    if has_device is None:
+        has_device = parsed_elig.get("device_ok")
+    if has_device is None and stored_device is not None:
+        has_device = bool(stored_device)
+    elif has_device is not None:
+        device_flag = bool(has_device)
+        if stored_device is None or bool(stored_device) != device_flag:
+            updates["q3_device"] = device_flag
+        has_device = device_flag
+
+    device_type = parsed_elig.get("device_type")
+    if device_type:
+        updates["device_type"] = device_type
+
+    return age_ok, has_device, updates
+
+
+def _sanitize_tool_calls(calls: List[ToolCall], profile: Dict[str, Any]) -> List[ToolCall]:
+    """Ensure tool calls have required arguments; fill from profile when possible."""
+    if not calls:
+        return calls
+
+    sanitized: List[ToolCall] = []
+    elig_profile = profile.get("eligibility") or {}
+
+    for call in calls:
+        if call.tool == "eligibility.check":
+            args = dict(call.args or {})
+
+            age_years = args.get("ageYears")
+            if age_years is None:
+                age_years = elig_profile.get("age_years")
+                if age_years is None and elig_profile.get("q2_age") is True:
+                    age_years = 18
+            try:
+                if age_years is not None:
+                    age_years = int(age_years)
+            except (ValueError, TypeError):
+                age_years = None
+
+            has_device = args.get("hasDevice")
+            if has_device is None:
+                has_device = elig_profile.get("has_device")
+            if has_device is None and elig_profile.get("q3_device") is not None:
+                has_device = bool(elig_profile["q3_device"])
+            if isinstance(has_device, str):
+                has_device = has_device.strip().lower() in {"true", "yes", "1"}
+
+            if age_years is None or has_device is None:
+                print("[onboarding.next] Skipping eligibility.check tool call due to incomplete arguments")
+                continue
+
+            args["ageYears"] = age_years
+            args["hasDevice"] = bool(has_device)
+            sanitized.append(ToolCall(tool=call.tool, args=args))
+        elif call.tool in {"slots.propose", "slot.hold", "slot.book"}:
+            args = dict(call.args or {})
+            volunteer_id = (
+                args.get("volunteerId")
+                or profile.get("volunteerId")
+                or profile.get("uuid")
+                or profile.get("id")
+            )
+            if not volunteer_id:
+                volunteer_id = "vol-unknown"
+            args["volunteerId"] = volunteer_id
+            sanitized.append(ToolCall(tool=call.tool, args=args))
+        else:
+            sanitized.append(call)
+
+    return sanitized
+
+
 def _is_simple_response(text: str) -> bool:
     """Check if response is simple enough for rule-based handling (skip LLM)"""
     low = text.lower().strip()
@@ -240,11 +343,52 @@ def _is_simple_response(text: str) -> bool:
     
     return is_simple and len(words) <= 4
 
+STATE_ORDER = [
+    "GREET",
+    "WELCOME",
+    "CONSENT_NO_PAY",
+    "ELIGIBILITY_PART1",
+    "ELIGIBILITY_PART2",
+    "CLASS_CONSTRAINTS",
+    "TIME_PREF",
+    "PREFS_DAYTIME",
+    "QA_WINDOW",
+    "ORIENTATION",
+    "SLOTING",
+    "SLOT_SELECT",
+    "HOLD_CONFIRM",
+    "WRAP",
+]
+
+
+def _enforce_forward_transition(current: str, proposed: str) -> str:
+    """Prevent LLM from sending the flow backwards."""
+    if not proposed:
+        return current
+    current_upper = current.upper()
+    proposed_upper = proposed.upper()
+    if proposed_upper == current_upper:
+        return current_upper
+    try:
+        idx_current = STATE_ORDER.index(current_upper)
+    except ValueError:
+        return proposed_upper
+    try:
+        idx_proposed = STATE_ORDER.index(proposed_upper)
+    except ValueError:
+        return proposed_upper
+    if idx_proposed < idx_current:
+        print(f"[onboarding.next] Blocking backward transition {current_upper} -> {proposed_upper}; staying in {current_upper}")
+        return current_upper
+    return proposed_upper
+
+
 @router.post("/onboarding.next", response_model=NextResponse)
 async def onboarding_next(req: NextRequest) -> NextResponse:
     s = req.session
     text = (req.user_text or "").strip()
     state = s.state or "GREET"
+    state_upper = state.upper()
     
     # Handle empty user_text (initial greeting or kickoff)
     if not text:
@@ -269,6 +413,13 @@ async def onboarding_next(req: NextRequest) -> NextResponse:
     if _is_simple_response(text):
         print(f"[onboarding.next] Simple response detected: '{text}', using rule-based fallback (no LLM)")
         result = await _fallback_response(state, text, s.profile, req.locale)
+        if result.updates:
+            elig_block = result.updates.get("eligibility")
+            if isinstance(elig_block, dict):
+                current_conf = elig_block.get("confidence", 0.0)
+                if current_conf < 0.9:
+                    elig_block["confidence"] = 0.9
+                result.updates["eligibility"] = elig_block
         # Update conversation history with assistant response
         history.append({"role": "assistant", "content": result.message})
         # Include updated history in updates
@@ -325,7 +476,8 @@ async def onboarding_next(req: NextRequest) -> NextResponse:
             
             # Extract fields
             message = parsed.get("message", "")
-            next_state = parsed.get("next_state", state)
+            next_state_raw = parsed.get("next_state", state)
+            next_state = _enforce_forward_transition(state, next_state_raw)
             tool_calls_data = parsed.get("tool_calls", [])
             updates = parsed.get("updates", {})
             quick_replies = parsed.get("quick_replies")
@@ -335,6 +487,7 @@ async def onboarding_next(req: NextRequest) -> NextResponse:
             for tc in tool_calls_data:
                 if isinstance(tc, dict) and "tool" in tc and "args" in tc:
                     calls.append(ToolCall(tool=tc["tool"], args=tc["args"]))
+            calls = _sanitize_tool_calls(calls, s.profile)
             
             # Update conversation history with assistant response
             history.append({"role": "assistant", "content": message})
@@ -349,8 +502,26 @@ async def onboarding_next(req: NextRequest) -> NextResponse:
             # Include updated conversation history in updates
             if updates is None:
                 updates = {}
+            elif not isinstance(updates, dict):
+                updates = dict(updates)
+
+            if state_upper == "ELIGIBILITY_PART1":
+                parsed_for_updates = await _parse(text, req.locale)
+                parsed_elig = parsed_for_updates.get("eligibility", {}) if parsed_for_updates else {}
+                profile_elig = s.profile.get("eligibility") or {}
+                _, _, elig_updates = _merge_eligibility_signals(profile_elig, parsed_elig)
+                if elig_updates:
+                    existing = updates.get("eligibility")
+                    if isinstance(existing, dict):
+                        elig_payload = {**profile_elig, **existing, **elig_updates}
+                    else:
+                        elig_payload = {**profile_elig, **elig_updates}
+                    updates["eligibility"] = elig_payload
+
             updates["conversation_history"] = history[-20:]  # Keep last 20 messages
-            
+            if updates:
+                print(f"[onboarding.next] LLM updates payload: {updates}")
+
             return NextResponse(
                 next_state=next_state,
                 message=message,
@@ -426,8 +597,17 @@ async def _fallback_response(state: str, text: str, profile: Dict[str, Any], loc
     if state_upper == "ELIGIBILITY_PART1":
         parsed = await _parse(text, locale)
         elig = parsed.get("eligibility", {})
-        age_ok = elig.get("age_ok")
-        has_device = elig.get("has_device") if elig.get("has_device") is not None else elig.get("device_ok")
+        profile_elig = profile.get("eligibility") or {}
+        age_ok, has_device, elig_updates = _merge_eligibility_signals(profile_elig, elig)
+        updates_payload: Dict[str, Any] = {}
+        if elig_updates:
+            updates_payload["eligibility"] = {**profile_elig, **elig_updates}
+        if updates_payload:
+            elig_block = updates_payload.get("eligibility", {})
+            current_conf = elig_block.get("confidence", 0.0)
+            if current_conf < 0.9:
+                elig_block["confidence"] = 0.9
+            updates_payload["eligibility"] = elig_block
         
         # If both confirmed
         if age_ok is True and has_device is True:
@@ -435,7 +615,8 @@ async def _fallback_response(state: str, text: str, profile: Dict[str, Any], loc
                 next_state="ELIGIBILITY_PART2",
                 message=("Great! Last thing—can you commit about 2 hours per week "
                          "for at least 3 months? We find that consistency really helps the students."),
-                quick_replies=["Yes, I can", "Tell me more", "I'm not sure"]
+                quick_replies=["Yes, I can", "Tell me more", "I'm not sure"],
+                updates=updates_payload or None
             )
         
         # If one or both missing, clarify
@@ -446,7 +627,8 @@ async def _fallback_response(state: str, text: str, profile: Dict[str, Any], loc
             return NextResponse(
                 next_state="ELIGIBILITY_PART1",
                 message=("Let me check: " + " ".join(missing)),
-                quick_replies=["Yes, both", "I have a question", "Tell me more"]
+                quick_replies=["Yes, both", "I have a question", "Tell me more"],
+                updates=updates_payload or None
             )
         
         # If either is False, not eligible
@@ -455,14 +637,16 @@ async def _fallback_response(state: str, text: str, profile: Dict[str, Any], loc
                 next_state="WRAP",
                 message=("Appreciate your interest! You may be better suited for non-teaching roles. "
                          "Shall I set a reminder if things change?"),
-                quick_replies=["Set a reminder", "No thanks"]
+                quick_replies=["Set a reminder", "No thanks"],
+                updates=updates_payload or None
             )
         
         # Default: ask again
         return NextResponse(
             next_state="ELIGIBILITY_PART1",
             message=("Are you 18 or older, and do you have a smartphone or laptop with internet?"),
-            quick_replies=["Yes, both", "I have a question", "Tell me more"]
+            quick_replies=["Yes, both", "I have a question", "Tell me more"],
+            updates=updates_payload or None
         )
     
     # ELIGIBILITY_PART2 - Check commitment (2hrs/week for at least 3 months)

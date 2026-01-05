@@ -128,12 +128,29 @@ TOOL_REGISTRY = {
     "wa.send_message": {
         "endpoint": "/mcp/wa.send_message",
         "method": "POST",
-        "description": "Send WhatsApp message via Kafka",
+        "description": "Send WhatsApp message via Kafka with optional interactive buttons",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "to": {"type": "string", "description": "Phone number (E.164 format)"},
-                "text": {"type": "string", "description": "Message text"}
+                "text": {"type": "string", "description": "Message text"},
+                "buttons": {
+                    "type": "array",
+                    "description": "Optional list of buttons. Can be array of strings (quick replies) or array of button objects with id/title",
+                    "items": {
+                        "anyOf": [
+                            {"type": "string"},
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "id": {"type": "string", "description": "Unique button ID"},
+                                    "title": {"type": "string", "description": "Button label text"}
+                                },
+                                "required": ["id", "title"]
+                            }
+                        ]
+                    }
+                }
             },
             "required": ["to", "text"]
         }
@@ -280,6 +297,36 @@ TOOL_REGISTRY = {
                 "policy_version": {"type": "string", "description": "Optional: policy version for filtering (e.g., 'v1.2')"}
             },
             "required": ["query"]
+        }
+    },
+    "onboarding.handle_turn": {
+        "endpoint": "/mcp/onboarding.handle_turn",
+        "method": "POST",
+        "description": "Parse a volunteer message, update onboarding facts, and return the next state with a ready reply",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "state": {"type": "string", "description": "Current onboarding state (e.g., WELCOME, ELIGIBILITY_PART1)"},
+                "message": {"type": "string", "description": "Volunteer WhatsApp message"},
+                "locale": {"type": "string", "default": "en-IN"},
+                "policy_version": {"type": "string"},
+                "user_profile": {"type": "object"},
+                "known_facts": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "type": {"type": "string"},
+                            "value": {"type": ["string", "number", "boolean", "object", "array", "null"]},
+                            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                            "source": {"type": "string"}
+                        },
+                        "required": ["type", "value"]
+                    },
+                    "description": "Previously collected facts for this session"
+                }
+            },
+            "required": ["state", "message"]
         }
     },
     "llm.qa": {
@@ -649,6 +696,19 @@ TOOL_REGISTRY = {
             },
             "required": ["title", "start_iso", "end_iso"]
         }
+    },
+    "serve.needs.list": {
+        "endpoint": "/mcp/serve.needs.list",
+        "method": "POST",
+        "description": "Fetch approved Serve needs for volunteer discovery",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "page": {"type": "integer", "default": 0, "minimum": 0, "description": "Page number (0-indexed)"},
+                "size": {"type": "integer", "default": 10, "minimum": 1, "maximum": 20, "description": "Page size (max 20)"},
+                "status": {"type": "string", "default": "Approved", "description": "Filter by status"}
+            }
+        }
     }
 }
 
@@ -672,6 +732,10 @@ async def invoke_http_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[st
         response = await client.post(url, json=arguments, timeout=120.0)
         print(f"[MCP Bridge] Response status: {response.status_code}")
         response.raise_for_status()
+        
+        # Explicitly decode as UTF-8 to handle Unicode characters (emojis, etc.)
+        # This ensures Windows 'charmap' encoding doesn't interfere
+        response.encoding = "utf-8"
         return response.json()
 
 # ------------- MCP PROTOCOL HANDLERS -------------
@@ -751,11 +815,38 @@ async def handle_tools_call(params: Optional[Dict]) -> Dict[str, Any]:
     try:
         result = await invoke_http_tool(tool_name, arguments)
         
+        # Safely serialize result to JSON with proper Unicode handling
+        # Ensure all strings in the result are properly encoded as UTF-8
+        def ensure_utf8_str(obj):
+            """Recursively ensure all strings are UTF-8 compatible"""
+            if isinstance(obj, dict):
+                return {k: ensure_utf8_str(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [ensure_utf8_str(item) for item in obj]
+            elif isinstance(obj, str):
+                # Ensure string can be encoded as UTF-8 (should always be true for Python 3 strings)
+                # This is mainly for validation - Python 3 strings are already Unicode
+                try:
+                    obj.encode('utf-8')
+                    return obj
+                except UnicodeEncodeError:
+                    # Fallback: replace problematic characters
+                    return obj.encode('utf-8', errors='replace').decode('utf-8')
+            else:
+                return obj
+        
+        # Normalize result to ensure UTF-8 compatibility
+        safe_result = ensure_utf8_str(result)
+        
+        # Serialize with explicit UTF-8 handling
+        # ensure_ascii=False allows Unicode characters to be preserved
+        json_text = json.dumps(safe_result, indent=2, ensure_ascii=False)
+        
         return {
             "content": [
                 {
                     "type": "text",
-                    "text": json.dumps(result, indent=2, ensure_ascii=False)
+                    "text": json_text
                 }
             ]
         }
@@ -763,7 +854,7 @@ async def handle_tools_call(params: Optional[Dict]) -> Dict[str, Any]:
         raise ValueError(f"Tool timeout: {tool_name} took too long")
     except httpx.HTTPStatusError as e:
         raise ValueError(f"Tool error: {tool_name} returned {e.response.status_code}")
-    except UnicodeEncodeError as e:
+    except (UnicodeEncodeError, UnicodeDecodeError) as e:
         raise ValueError(f"Unicode encoding error in tool response: {str(e)}")
     except Exception as e:
         raise ValueError(f"Tool execution failed: {str(e)}")
@@ -905,7 +996,14 @@ async def mcp_endpoint(request: Request):
             if response is None:
                 return JSONResponse(content=None, status_code=204)
             
-            return JSONResponse(content=response.dict(exclude_none=True), media_type="application/json; charset=utf-8")
+            # Convert response to dict - Pydantic already handles Unicode properly
+            response_dict = response.dict(exclude_none=True)
+            
+            # FastAPI JSONResponse handles UTF-8 correctly when charset is specified
+            return JSONResponse(
+                content=response_dict, 
+                media_type="application/json; charset=utf-8"
+            )
         
         # Handle batch requests (array of requests)
         elif isinstance(body, list):
@@ -916,7 +1014,10 @@ async def mcp_endpoint(request: Request):
                 if response:
                     responses.append(response.dict(exclude_none=True))
             
-            return JSONResponse(content=responses, media_type="application/json; charset=utf-8")
+            return JSONResponse(
+                content=responses, 
+                media_type="application/json; charset=utf-8"
+            )
         
         else:
             return JSONResponse(
