@@ -12,7 +12,7 @@ from tools import deferral, state
 from tools import onboarding_next
 from tools import llm_humanize
 from tools import knowledge, llm_qa, onboarding_turns
-from tools import serve_needs
+from tools import serve_needs, serve_fulfill
 
 app = FastAPI(title="serve-agentic-mcp-service", version="0.1.0")
 
@@ -78,6 +78,7 @@ app.include_router(knowledge.router, prefix="/mcp")  # Knowledge search
 app.include_router(llm_qa.router, prefix="/mcp")  # LLM QA tool
 app.include_router(onboarding_turns.router, prefix="/mcp")  # Unified onboarding turn handler
 app.include_router(serve_needs.router, prefix="/mcp")  # Serve needs list
+app.include_router(serve_fulfill.router, prefix="/mcp")  # Serve fulfillment nomination
 
 # Mount MCP JSON-RPC server AFTER all routes are registered
 # This way it doesn't override existing endpoints

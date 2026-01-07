@@ -124,27 +124,36 @@ def _parse_days(days_data: Any) -> List[str]:
     else:
         return []
 
-def _extract_time_slots(occurrence: Dict[str, Any]) -> List[TimeSlot]:
-    """Extract time slots from occurrence data"""
+def _extract_time_slots(time_slots_data: List[Dict[str, Any]]) -> List[TimeSlot]:
+    """Extract time slots from timeSlots array in API response"""
     time_slots = []
     
-    days = _parse_days(occurrence.get('days'))
-    start_time = occurrence.get('startTime') or occurrence.get('start_time')
-    end_time = occurrence.get('endTime') or occurrence.get('end_time')
-    
-    start_hhmm = _parse_time_to_hhmm(start_time)
-    end_hhmm = _parse_time_to_hhmm(end_time)
-    
-    if not days or not start_hhmm or not end_hhmm:
+    if not time_slots_data or not isinstance(time_slots_data, list):
         return []
     
-    # Create one time slot per day
-    for day in days:
-        time_slots.append(TimeSlot(
-            day=day,
-            startTime=start_hhmm,
-            endTime=end_hhmm
-        ))
+    for slot in time_slots_data:
+        if not isinstance(slot, dict):
+            continue
+        
+        # Extract day (already a string like "Monday")
+        day = slot.get('day', '')
+        if not day:
+            continue
+        
+        # Extract and parse start/end times (ISO datetime format)
+        start_time = slot.get('startTime') or slot.get('start_time')
+        end_time = slot.get('endTime') or slot.get('end_time')
+        
+        start_hhmm = _parse_time_to_hhmm(start_time)
+        end_hhmm = _parse_time_to_hhmm(end_time)
+        
+        # Only add if we have valid time
+        if start_hhmm and end_hhmm:
+            time_slots.append(TimeSlot(
+                day=str(day).upper(),  # Normalize to uppercase
+                startTime=start_hhmm,
+                endTime=end_hhmm
+            ))
     
     return time_slots
 
@@ -155,12 +164,30 @@ def _map_serve_response_item(item: Dict[str, Any]) -> ServeNeedItem:
     entity = item.get('entity', {})
     occurrence = item.get('occurrence', {}) or item.get('occurrences', [{}])[0] if isinstance(item.get('occurrences'), list) and item.get('occurrences') else {}
     
-    # Extract days - check multiple possible locations
-    days = _parse_days(
+    # Extract time slots from item level (not occurrence)
+    time_slots_data = item.get('timeSlots', []) or item.get('time_slots', [])
+    time_slots = _extract_time_slots(time_slots_data)
+    
+    # Extract days - prefer from occurrence, but also extract unique days from time slots as fallback
+    days_from_occurrence = _parse_days(
         occurrence.get('days') or 
         need.get('days') or 
         item.get('days')
     )
+    
+    # Also extract unique days from time slots (more accurate)
+    days_from_slots = []
+    if time_slots_data:
+        for slot in time_slots_data:
+            if isinstance(slot, dict):
+                day = slot.get('day')
+                if day:
+                    day_upper = str(day).upper()
+                    if day_upper not in days_from_slots:
+                        days_from_slots.append(day_upper)
+    
+    # Use days from time slots if available, otherwise use occurrence days
+    days = days_from_slots if days_from_slots else days_from_occurrence
     
     # Extract dates
     start_date = _parse_iso_date(
@@ -175,9 +202,6 @@ def _map_serve_response_item(item: Dict[str, Any]) -> ServeNeedItem:
         need.get('endDate') or
         item.get('endDate')
     )
-    
-    # Extract time slots
-    time_slots = _extract_time_slots(occurrence)
     
     # Extract entity details
     school_name = entity.get('name') or entity.get('schoolName') or need.get('schoolName') or ""

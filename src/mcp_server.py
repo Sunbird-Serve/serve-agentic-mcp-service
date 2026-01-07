@@ -709,6 +709,21 @@ TOOL_REGISTRY = {
                 "status": {"type": "string", "default": "Approved", "description": "Filter by status"}
             }
         }
+    },
+    "serve.fulfill.nominate": {
+        "endpoint": "/mcp/serve.fulfill.nominate",
+        "method": "POST",
+        "description": "Nominate a volunteer for a Serve need",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "needId": {"type": "string", "description": "UUID string of the Serve need"},
+                "nominatedUserId": {"type": "string", "description": "UUID string of the nominated volunteer/user"},
+                "source": {"type": "string", "description": "Source of nomination: 'whatsapp', 'portal', 'other'"},
+                "idempotency_key": {"type": "string", "description": "Optional idempotency key to prevent duplicate nominations"}
+            },
+            "required": ["needId", "nominatedUserId"]
+        }
     }
 }
 

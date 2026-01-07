@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     TOPIC_WA_OUT: str = "serve.vm.whatsapp.out"
     TOPIC_WA_IN: str = "serve.vm.whatsapp.in"
     WA_ASCII_ONLY: bool = False
+    SERVE_BASE_URL: str = "https://serve-v1.evean.net"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
