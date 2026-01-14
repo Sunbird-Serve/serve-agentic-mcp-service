@@ -1,20 +1,28 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
+from typing import Optional
+from typing import Optional, List, Tuple
 class Settings(BaseSettings):
     KAFKA_BROKERS: str = "localhost:19092"
     TOPIC_WA_OUT: str = "serve.vm.whatsapp.out"
     TOPIC_WA_IN: str = "serve.vm.whatsapp.in"
     WA_ASCII_ONLY: bool = False
     SERVE_BASE_URL: str = "https://serve-v1.evean.net"
+    SERVE_TIMEOUT_SECONDS: float = 15.0
+    SERVE_DEFAULT_AGENCY_ID: str = "1-74f81200-dc16-4c65-bf7a-a3ab75952432"
     
     # WhatsApp Cloud API configuration
-    WHATSAPP_ACCESS_TOKEN: str = "EAAKvnZCuvi3QBQeg2qz9LqQrSPwmsTUJCSfZBlMgU9EoiHp9c1cR24UT2Od6y7gOPBuI6x4WGaC0V9qjZAfZBvBqLz50tGlCelttvsfqyZARgi1W2NTmEHMSwEWZAiKCjBxObNZASwTGZBuIMB8NBHG3dOVxVWlkodpPhH3mdzrZBQ9Nkzy6zZA7VDNXrwhGHbW76d3KkbIU6JJcYH6WuBkxCNfR4dpb2GfSJDqO0uVozBw2BRZBfyQknfWdV4ocRXqXHJtDw03ZCvZCvwkCvliT0sjXU"
+    WHATSAPP_ACCESS_TOKEN: str = "EAAKvnZCuvi3QBQfoqCF513lhZCIibNtcnZAVZCtwYE8Kk5ReDuWqZCZBCKug5iwOyK3LHodmWdwkjnbKacZCCBWr7I2HfmOcoM0oxbcllZA5ppUYKGZBLNGYu5Wnbx4Wu4rCNTqXeuaoDd2vQf4SJCyT0ZCMYRkvqm7qIZA3vZBG0KRZCbZCOcu49OEc5vh9oCXgpcc2VCx8w3fA5YDYgvUDssjndXAimviYe85IWt84IrwT9m6kBZBGccIYKCKdt6CQAwUXrmNsJyz95VPpTxPKPhUYcBs"
     WHATSAPP_PHONE_NUMBER_ID: str = "882287331642834"
     WHATSAPP_API_VERSION: str = "v21.0"
     
     # Class video configuration
     SERVE_CLASS_VIDEO_PATH: str = "./media/serve_class_intro.mp4"
     WA_MEDIA_CACHE_PATH: str = "./media_cache.json"
+    
+    # Firebase configuration
+    FIREBASE_SERVICE_ACCOUNT_JSON: str = "./serve-sandbox-firebase-adminsdk-4i44o-ac8df1245e.json"
+    FIREBASE_PROJECT_ID: Optional[str] = None
+    FIREBASE_RESET_CONTINUE_URL: Optional[str] = None
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

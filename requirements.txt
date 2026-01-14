@@ -6,3 +6,4 @@ aiokafka==0.10.0
 dateparser>=1.2.0
 httpx
 rapidfuzz
+firebase-admin

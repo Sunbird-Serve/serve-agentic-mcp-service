@@ -6,6 +6,25 @@ It implements the official MCP specification while keeping the HTTP REST API for
 
 Specification: https://modelcontextprotocol.io/specification
 """
+import sys
+import io
+
+# Configure UTF-8 encoding for stdout/stderr (Python 3.7+)
+# This ensures Unicode characters (emojis, etc.) are properly handled on Windows
+if sys.stdout.encoding != 'utf-8':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except (AttributeError, ValueError):
+        # Fallback for older Python versions or if reconfigure fails
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
+if sys.stderr.encoding != 'utf-8':
+    try:
+        sys.stderr.reconfigure(encoding='utf-8')
+    except (AttributeError, ValueError):
+        # Fallback for older Python versions or if reconfigure fails
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -737,6 +756,77 @@ TOOL_REGISTRY = {
             },
             "required": ["to_phone"]
         }
+    },
+    "serve.volunteer.email_exists": {
+        "endpoint": "/mcp/serve.volunteer.email_exists",
+        "method": "POST",
+        "description": "Check if a volunteer email exists in SERVE system and get volunteer ID if found",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "email": {"type": "string", "description": "Email address to check"}
+            },
+            "required": ["email"]
+        }
+    },
+    "serve.volunteer.register": {
+        "endpoint": "/mcp/serve.volunteer.register",
+        "method": "POST",
+        "description": "Register a new volunteer in SERVE system. Calls two APIs: Create User, then Create User Profile. Should only be called when email_exists returned exists=false",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Full name of the volunteer"},
+                "email": {"type": "string", "description": "Email address"},
+                "wa_phone": {"type": "string", "description": "WhatsApp phone number with country code"},
+                "day_preferred": {"type": "array", "items": {"type": "string"}, "description": "Preferred days, e.g. ['Monday', 'Wednesday']"},
+                "time_preferred": {"type": "array", "items": {"type": "string"}, "description": "Preferred times, e.g. ['Morning', 'Afternoon']"},
+                "agency_id": {"type": "string", "description": "Agency ID (uses default if not provided)"},
+                "idempotency_key": {"type": "string", "description": "Idempotency key for safe retries"}
+            },
+            "required": ["name", "email", "wa_phone", "idempotency_key"]
+        }
+    },
+    "firebase.auth.email_exists": {
+        "endpoint": "/mcp/firebase.auth.email_exists",
+        "method": "POST",
+        "description": "Check if a Firebase user exists by email address",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "email": {"type": "string", "description": "Email address to check"}
+            },
+            "required": ["email"]
+        }
+    },
+    "firebase.auth.ensure_user": {
+        "endpoint": "/mcp/firebase.auth.ensure_user",
+        "method": "POST",
+        "description": "Idempotently ensure a Firebase email/password user exists. Creates user if missing and optionally generates password reset link",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "email": {"type": "string", "description": "Email address"},
+                "display_name": {"type": "string", "description": "Display name for the user"},
+                "create_if_missing": {"type": "boolean", "default": True, "description": "Create user if doesn't exist"},
+                "generate_reset_link": {"type": "boolean", "default": True, "description": "Generate password reset link"}
+            },
+            "required": ["email"]
+        }
+    },
+    "serve.volunteer.update_status": {
+        "endpoint": "/mcp/serve.volunteer.update_status",
+        "method": "POST",
+        "description": "Update SERVE volunteer lifecycle status after selection decision. Idempotent and safe to retry.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "volunteer_id": {"type": "string", "description": "SERVE volunteer osid"},
+                "status": {"type": "string", "enum": ["RECOMMENDED", "ONHOLD"], "description": "New status: RECOMMENDED or ONHOLD"},
+                "send": {"type": "boolean", "default": True, "description": "Send notification (default: true)"}
+            },
+            "required": ["volunteer_id", "status"]
+        }
     }
 }
 
@@ -883,9 +973,20 @@ async def handle_tools_call(params: Optional[Dict]) -> Dict[str, Any]:
     except httpx.HTTPStatusError as e:
         raise ValueError(f"Tool error: {tool_name} returned {e.response.status_code}")
     except (UnicodeEncodeError, UnicodeDecodeError) as e:
-        raise ValueError(f"Unicode encoding error in tool response: {str(e)}")
+        # Safely encode error message to avoid encoding errors when creating the ValueError
+        try:
+            error_msg = str(e)
+        except UnicodeEncodeError:
+            # If str(e) fails, use a safe ASCII representation
+            error_msg = f"Unicode encoding error: {type(e).__name__}"
+        raise ValueError(f"Unicode encoding error in tool response: {error_msg}")
     except Exception as e:
-        raise ValueError(f"Tool execution failed: {str(e)}")
+        # Safely encode error message to avoid encoding errors
+        try:
+            error_msg = str(e)
+        except UnicodeEncodeError:
+            error_msg = f"Error: {type(e).__name__}"
+        raise ValueError(f"Tool execution failed: {error_msg}")
 
 async def handle_ping(params: Optional[Dict]) -> Dict[str, Any]:
     """Handle ping request (keepalive)"""
@@ -937,12 +1038,20 @@ async def process_mcp_request(request: JSONRPCRequest) -> JSONRPCResponse:
         )
     
     except ValueError as e:
+        # Safely encode error message to avoid encoding errors
+        try:
+            error_msg = str(e)
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            error_msg = f"Invalid parameters: {type(e).__name__}"
+        except Exception:
+            error_msg = "Invalid parameters"
+        
         return JSONRPCResponse(
             id=request.id,
             error=JSONRPCError(
                 code=MCPErrorCode.INVALID_PARAMS,
-                message=str(e),
-                data={"param_error": str(e)}
+                message=error_msg,
+                data={"param_error": error_msg}
             ).dict()
         )
     except httpx.TimeoutException as e:
@@ -955,11 +1064,19 @@ async def process_mcp_request(request: JSONRPCRequest) -> JSONRPCResponse:
             ).dict()
         )
     except Exception as e:
+        # Safely encode error message to avoid encoding errors
+        try:
+            error_msg = str(e)
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            error_msg = f"Internal error: {type(e).__name__}"
+        except Exception:
+            error_msg = "Internal error: Unknown exception"
+        
         return JSONRPCResponse(
             id=request.id,
             error=JSONRPCError(
                 code=MCPErrorCode.INTERNAL_ERROR,
-                message=f"Internal error: {str(e)}",
+                message=error_msg,
                 data={"error_type": type(e).__name__}
             ).dict()
         )
@@ -1059,11 +1176,19 @@ async def mcp_endpoint(request: Request):
             )
     
     except Exception as e:
+        # Safely encode error message to avoid encoding errors
+        try:
+            error_msg = str(e)
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            error_msg = f"Parse error: {type(e).__name__}"
+        except Exception:
+            error_msg = "Parse error: Unknown exception"
+        
         return JSONResponse(
             content=JSONRPCResponse(
                 error=JSONRPCError(
                     code=MCPErrorCode.PARSE_ERROR,
-                    message=f"Parse error: {str(e)}"
+                    message=error_msg
                 ).dict()
             ).dict(),
             status_code=400

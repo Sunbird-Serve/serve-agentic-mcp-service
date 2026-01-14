@@ -1,3 +1,22 @@
+import sys
+import io
+
+# Configure UTF-8 encoding for stdout/stderr (Python 3.7+)
+# This ensures Unicode characters (emojis, etc.) are properly handled on Windows
+if sys.stdout.encoding != 'utf-8':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except (AttributeError, ValueError):
+        # Fallback for older Python versions or if reconfigure fails
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
+if sys.stderr.encoding != 'utf-8':
+    try:
+        sys.stderr.reconfigure(encoding='utf-8')
+    except (AttributeError, ValueError):
+        # Fallback for older Python versions or if reconfigure fails
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from tools.wa_send import SendMessageInput, publish_wa_out
@@ -14,6 +33,9 @@ from tools import llm_humanize
 from tools import knowledge, llm_qa, onboarding_turns
 from tools import serve_needs, serve_fulfill
 from tools import wa_video
+from tools import serve_volunteering
+from mcp_tools.firebase_auth import email_exists_router, ensure_user_router
+from mcp_tools.serve_volunteer import update_status_router
 
 app = FastAPI(title="serve-agentic-mcp-service", version="0.1.0")
 
@@ -45,7 +67,7 @@ async def list_tools():
 async def wa_send_message(payload: SendMessageInput):
     try:
         result = await publish_wa_out(payload.to, payload.text, payload.buttons)
-        return JSONResponse(result)
+        return JSONResponse(result, media_type="application/json; charset=utf-8")
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to send message: {e!r}")
 
@@ -81,6 +103,10 @@ app.include_router(onboarding_turns.router, prefix="/mcp")  # Unified onboarding
 app.include_router(serve_needs.router, prefix="/mcp")  # Serve needs list
 app.include_router(serve_fulfill.router, prefix="/mcp")  # Serve fulfillment nomination
 app.include_router(wa_video.router, prefix="/mcp")  # WhatsApp video sending
+app.include_router(serve_volunteering.router, prefix="/mcp")  # Serve volunteering tools
+app.include_router(email_exists_router, prefix="/mcp")  # Firebase auth: email exists
+app.include_router(ensure_user_router, prefix="/mcp")  # Firebase auth: ensure user
+app.include_router(update_status_router, prefix="/mcp")  # SERVE volunteer: update status
 
 # Mount MCP JSON-RPC server AFTER all routes are registered
 # This way it doesn't override existing endpoints
