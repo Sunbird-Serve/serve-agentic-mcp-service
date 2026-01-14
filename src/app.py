@@ -66,7 +66,7 @@ async def list_tools():
 @app.post("/mcp/wa.send_message")
 async def wa_send_message(payload: SendMessageInput):
     try:
-        result = await publish_wa_out(payload.to, payload.text, payload.buttons)
+        result = await publish_wa_out(payload.to, payload.text, payload.buttons, payload.interactive_list, payload.template)
         return JSONResponse(result, media_type="application/json; charset=utf-8")
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to send message: {e!r}")

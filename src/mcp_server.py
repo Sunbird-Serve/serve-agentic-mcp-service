@@ -147,15 +147,30 @@ TOOL_REGISTRY = {
     "wa.send_message": {
         "endpoint": "/mcp/wa.send_message",
         "method": "POST",
-        "description": "Send WhatsApp message via Kafka with optional interactive buttons",
+        "description": "Send WhatsApp message via Kafka. Supports template messages, interactive lists, buttons, or plain text. Priority: template > list > text/buttons",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "to": {"type": "string", "description": "Phone number (E.164 format)"},
-                "text": {"type": "string", "description": "Message text"},
+                "template": {
+                    "type": "object",
+                    "description": "Optional WhatsApp template message. If provided, takes precedence over text/list/buttons",
+                    "properties": {
+                        "name": {"type": "string", "description": "Template name (e.g., 'serve_welcome')"},
+                        "language": {
+                            "type": "object",
+                            "properties": {
+                                "code": {"type": "string", "description": "Language code (e.g., 'en', 'hi')"}
+                            },
+                            "required": ["code"]
+                        }
+                    },
+                    "required": ["name", "language"]
+                },
+                "text": {"type": "string", "description": "Message text (required if template/list is not provided)"},
                 "buttons": {
                     "type": "array",
-                    "description": "Optional list of buttons. Can be array of strings (quick replies) or array of button objects with id/title",
+                    "description": "Optional list of buttons. Can be array of strings (quick replies) or array of button objects with id/title (used if template/list is not provided)",
                     "items": {
                         "anyOf": [
                             {"type": "string"},
@@ -171,7 +186,7 @@ TOOL_REGISTRY = {
                     }
                 }
             },
-            "required": ["to", "text"]
+            "required": ["to"]
         }
     },
     "llm.call": {

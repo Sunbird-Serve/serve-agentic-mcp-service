@@ -52,7 +52,7 @@ _KNOWLEDGE_BASE = {
         {
             "id": "faq_training",
             "title": "Training & Support",
-            "text": "Yes! You'll attend a 30-min online orientation, and a local coordinator supports you during classes.",
+            "text": "Yes! You'll get the pedagogy from the volunteer coordinator after you get assigned, and a local coordinator supports you during classes.",
             "tags": ["support", "training"],
             "policy_version": "v1.2"
         },
@@ -80,7 +80,7 @@ _KNOWLEDGE_BASE = {
         {
             "id": "faq_orientation",
             "title": "Orientation Process",
-            "text": "Orientation is a brief 30-minute online onboarding call to share the flow, best practices, and answer questions. It happens before your first live class.",
+            "text": "There will not be any separate orientation session. If you need more information, you can ask me or a volunteer coordinator will get in touch with you",
             "tags": ["orientation", "onboarding", "training"],
             "policy_version": "v1.2"
         },
@@ -129,7 +129,7 @@ _KNOWLEDGE_BASE = {
         {
             "id": "faq_mobile_ok",
             "title": "Can I teach using my mobile phone?",
-            "text": "Yes. A smartphone with stable internet is acceptable. A quiet space and a basic headset help with clarity.",
+            "text": "No. tablet or a laptop only are acceptable. A quiet space and a basic headset help with clarity.",
             "tags": ["device", "mobile", "internet", "requirements"],
             "policy_version": "v1.2"
         },
