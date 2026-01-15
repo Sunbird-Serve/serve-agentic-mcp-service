@@ -11,8 +11,8 @@ class Settings(BaseSettings):
     SERVE_DEFAULT_AGENCY_ID: str = "1-74f81200-dc16-4c65-bf7a-a3ab75952432"
     
     # WhatsApp Cloud API configuration
-    WHATSAPP_ACCESS_TOKEN: str = "EAAKvnZCuvi3QBQfoqCF513lhZCIibNtcnZAVZCtwYE8Kk5ReDuWqZCZBCKug5iwOyK3LHodmWdwkjnbKacZCCBWr7I2HfmOcoM0oxbcllZA5ppUYKGZBLNGYu5Wnbx4Wu4rCNTqXeuaoDd2vQf4SJCyT0ZCMYRkvqm7qIZA3vZBG0KRZCbZCOcu49OEc5vh9oCXgpcc2VCx8w3fA5YDYgvUDssjndXAimviYe85IWt84IrwT9m6kBZBGccIYKCKdt6CQAwUXrmNsJyz95VPpTxPKPhUYcBs"
-    WHATSAPP_PHONE_NUMBER_ID: str = "882287331642834"
+    WHATSAPP_ACCESS_TOKEN: str = ""
+    WHATSAPP_PHONE_NUMBER_ID: str = ""
     WHATSAPP_API_VERSION: str = "v21.0"
     
     # Class video configuration
