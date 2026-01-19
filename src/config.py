@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     
     # Class video configuration
     SERVE_CLASS_VIDEO_PATH: str = "./media/serve_class_intro.mp4"
+    SERVE_WELCOME_VIDEO_PATH: str = "./media/welcome.mp4"
     WA_MEDIA_CACHE_PATH: str = "./media_cache.json"
     
     # Firebase configuration

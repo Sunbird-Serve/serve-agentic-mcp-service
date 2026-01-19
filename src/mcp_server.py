@@ -772,6 +772,19 @@ TOOL_REGISTRY = {
             "required": ["to_phone"]
         }
     },
+    "serve.whatsapp.send_welcome_video": {
+        "endpoint": "/mcp/serve.whatsapp.send_welcome_video",
+        "method": "POST",
+        "description": "Send an in-app playable WhatsApp welcome video (MP4). The video file is hosted on the MCP server. Uploads video to WhatsApp Media API and sends using media_id.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "to_phone": {"type": "string", "description": "Recipient phone number (E.164 format)"},
+                "caption": {"type": "string", "description": "Optional caption text for the video"}
+            },
+            "required": ["to_phone"]
+        }
+    },
     "serve.volunteer.email_exists": {
         "endpoint": "/mcp/serve.volunteer.email_exists",
         "method": "POST",

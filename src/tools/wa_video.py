@@ -44,19 +44,22 @@ def _calculate_file_hash(file_path: str) -> Optional[str]:
     except Exception:
         return None
 
-def _resolve_video_path() -> Tuple[Optional[str], Optional[str]]:
+def _resolve_video_path(config_path: str, config_name: str) -> Tuple[Optional[str], Optional[str]]:
     """
     Resolve video file path from configuration.
+    
+    Args:
+        config_path: Path from settings (e.g., settings.SERVE_CLASS_VIDEO_PATH)
+        config_name: Name of config variable for error messages
     
     Returns:
         Tuple of (file_path, error_message)
     """
-    video_path = settings.SERVE_CLASS_VIDEO_PATH
-    if not video_path:
-        return None, "SERVE_CLASS_VIDEO_PATH not configured"
+    if not config_path:
+        return None, f"{config_name} not configured"
     
     # Resolve path (supports relative and absolute paths)
-    resolved_path = os.path.abspath(video_path)
+    resolved_path = os.path.abspath(config_path)
     if not os.path.exists(resolved_path):
         return None, f"Video file not found: {resolved_path}. Please place the video file at the configured path."
     
@@ -65,15 +68,24 @@ def _resolve_video_path() -> Tuple[Optional[str], Optional[str]]:
     
     return resolved_path, None
 
-# --------- Main Endpoint ---------
-
-@router.post("/serve.whatsapp.send_class_video", response_model=SendClassVideoResponse)
-async def send_class_video(req: SendClassVideoRequest) -> SendClassVideoResponse:
+async def _send_video_internal(
+    video_path_config: str,
+    config_name: str,
+    to_phone: str,
+    caption: Optional[str]
+) -> SendClassVideoResponse:
     """
-    Send a class demo video via WhatsApp.
+    Internal function to send a video via WhatsApp.
+    Handles validation, caching, upload, and sending.
     
-    Uploads the video to WhatsApp Media API (with caching) and sends it
-    as an in-app playable video message (not a link).
+    Args:
+        video_path_config: Video path from settings
+        config_name: Name of config variable for error messages
+        to_phone: Recipient phone number
+        caption: Optional caption text
+    
+    Returns:
+        SendClassVideoResponse with result
     """
     # Validate configuration
     if not settings.WHATSAPP_ACCESS_TOKEN:
@@ -89,7 +101,7 @@ async def send_class_video(req: SendClassVideoRequest) -> SendClassVideoResponse
         )
     
     # Resolve video file path from config
-    video_path, path_error = _resolve_video_path()
+    video_path, path_error = _resolve_video_path(video_path_config, config_name)
     if path_error:
         return SendClassVideoResponse(
             ok=False,
@@ -141,9 +153,9 @@ async def send_class_video(req: SendClassVideoRequest) -> SendClassVideoResponse
     
     # Send video message
     wa_message_id, send_error = await send_video_message(
-        to_phone=req.to_phone,
+        to_phone=to_phone,
         media_id=media_id,
-        caption=req.caption,
+        caption=caption,
         access_token=settings.WHATSAPP_ACCESS_TOKEN,
         phone_number_id=settings.WHATSAPP_PHONE_NUMBER_ID,
         api_version=settings.WHATSAPP_API_VERSION
@@ -163,5 +175,37 @@ async def send_class_video(req: SendClassVideoRequest) -> SendClassVideoResponse
         media_id=media_id,
         wa_message_id=wa_message_id,
         cached=cached
+    )
+
+# --------- Main Endpoint ---------
+
+@router.post("/serve.whatsapp.send_class_video", response_model=SendClassVideoResponse)
+async def send_class_video(req: SendClassVideoRequest) -> SendClassVideoResponse:
+    """
+    Send a class demo video via WhatsApp.
+    
+    Uploads the video to WhatsApp Media API (with caching) and sends it
+    as an in-app playable video message (not a link).
+    """
+    return await _send_video_internal(
+        settings.SERVE_CLASS_VIDEO_PATH,
+        "SERVE_CLASS_VIDEO_PATH",
+        req.to_phone,
+        req.caption
+    )
+
+@router.post("/serve.whatsapp.send_welcome_video", response_model=SendClassVideoResponse)
+async def send_welcome_video(req: SendClassVideoRequest) -> SendClassVideoResponse:
+    """
+    Send a welcome video via WhatsApp.
+    
+    Uploads the video to WhatsApp Media API (with caching) and sends it
+    as an in-app playable video message (not a link).
+    """
+    return await _send_video_internal(
+        settings.SERVE_WELCOME_VIDEO_PATH,
+        "SERVE_WELCOME_VIDEO_PATH",
+        req.to_phone,
+        req.caption
     )
 
