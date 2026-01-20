@@ -209,3 +209,18 @@ async def send_welcome_video(req: SendClassVideoRequest) -> SendClassVideoRespon
         req.caption
     )
 
+@router.post("/serve.whatsapp.send_thankyou_video", response_model=SendClassVideoResponse)
+async def send_thankyou_video(req: SendClassVideoRequest) -> SendClassVideoResponse:
+    """
+    Send a thank you video via WhatsApp.
+    
+    Uploads the video to WhatsApp Media API (with caching) and sends it
+    as an in-app playable video message (not a link).
+    """
+    return await _send_video_internal(
+        settings.SERVE_THANKYOU_VIDEO_PATH,
+        "SERVE_THANKYOU_VIDEO_PATH",
+        req.to_phone,
+        req.caption
+    )
+
