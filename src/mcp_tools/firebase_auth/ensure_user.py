@@ -8,8 +8,8 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Tuple
 import secrets
 import string
-from firebase_admin import auth as firebase_auth
-from firebase_admin.auth import UserNotFoundError, ActionCodeSettings
+import httpx
+from firebase_admin.auth import UserNotFoundError
 
 from .firebase_client import get_firebase_auth, mask_email
 from config import settings
@@ -29,7 +29,8 @@ class EnsureUserResponse(BaseModel):
     """Response from ensure user operation"""
     status: str = Field(..., description="Status: 'created', 'existing', or 'failed'")
     firebase_uid: Optional[str] = Field(None, description="Firebase User ID")
-    reset_link: Optional[str] = Field(None, description="Password reset link (if generated)")
+    reset_link: Optional[str] = Field(None, description="Password reset link (deprecated; not returned when using REST email)")
+    reset_email_sent: bool = Field(False, description="Whether a reset email was requested from Firebase")
     message: str = Field("", description="Human-readable message")
     errors: List[str] = Field(default_factory=list, description="List of error messages if any")
 
@@ -90,6 +91,42 @@ def _generate_strong_password(length: int = 16) -> str:
     
     return ''.join(password)
 
+async def _send_password_reset_email(email: str) -> Tuple[bool, Optional[str]]:
+    """
+    Send password reset email via Firebase Auth REST API (sendOobCode).
+    Returns (sent, error_message).
+    """
+    api_key = getattr(settings, "FIREBASE_WEB_API_KEY", None)
+    if not api_key:
+        return False, "FIREBASE_WEB_API_KEY not configured"
+
+    url = f"https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key={api_key}"
+    payload = {
+        "requestType": "PASSWORD_RESET",
+        "email": email.strip()
+    }
+
+    continue_url = getattr(settings, "FIREBASE_RESET_CONTINUE_URL", None)
+    if continue_url:
+        payload["continueUrl"] = continue_url
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(url, json=payload)
+            if response.status_code == 200:
+                return True, None
+            error_text = response.text
+            try:
+                error_data = response.json()
+                error_msg = error_data.get("error", {}).get("message", error_text)
+            except Exception:
+                error_msg = error_text
+            return False, f"Reset email failed (HTTP {response.status_code}): {error_msg}"
+    except httpx.TimeoutException:
+        return False, "Reset email timeout"
+    except Exception as e:
+        return False, f"Reset email error: {str(e)}"
+
 # --------- Main Endpoint ---------
 
 @router.post("/firebase.auth.ensure_user", response_model=EnsureUserResponse)
@@ -99,7 +136,7 @@ async def ensure_user(req: EnsureUserRequest) -> EnsureUserResponse:
     
     - Checks if user exists by email
     - If not exists and create_if_missing=True, creates user with random password
-    - If generate_reset_link=True, generates password reset link
+    - If generate_reset_link=True, sends password reset email via Firebase REST API
     """
     masked_email = mask_email(req.email)
     
@@ -132,38 +169,29 @@ async def ensure_user(req: EnsureUserRequest) -> EnsureUserResponse:
             status = "existing"
             message = f"User already exists (uid: {firebase_uid})"
             
-            # Generate reset link if requested
+            # Send reset email if requested
             reset_link = None
+            reset_email_sent = False
             if req.generate_reset_link:
-                try:
-                    # Get reset continue URL from config (if set)
-                    continue_url = getattr(settings, 'FIREBASE_RESET_CONTINUE_URL', None)
-                    
-                    action_code_settings = None
-                    if continue_url:
-                        action_code_settings = ActionCodeSettings(
-                            url=continue_url,
-                            handle_code_in_app=False
-                        )
-                    
-                    reset_link = auth_client.generate_password_reset_link(
-                        req.email,
-                        action_code_settings=action_code_settings
-                    )
-                    message += " (reset link generated)"
-                except Exception as e:
+                sent, send_error = await _send_password_reset_email(req.email)
+                reset_email_sent = sent
+                if sent:
+                    message += " (reset email sent)"
+                else:
                     # Log error but don't fail the request
                     return EnsureUserResponse(
                         status=status,
                         firebase_uid=firebase_uid,
-                        message=message + f" (reset link generation failed: {str(e)})",
-                        errors=[f"Reset link generation failed: {str(e)}"]
+                        reset_email_sent=reset_email_sent,
+                        message=message + f" (reset email failed: {send_error})",
+                        errors=[f"Reset email failed: {send_error}"]
                     )
             
             return EnsureUserResponse(
                 status=status,
                 firebase_uid=firebase_uid,
                 reset_link=reset_link,
+                reset_email_sent=reset_email_sent,
                 message=message
             )
         
@@ -193,38 +221,29 @@ async def ensure_user(req: EnsureUserRequest) -> EnsureUserResponse:
         status = "created"
         message = f"User created successfully (uid: {firebase_uid})"
         
-        # Generate reset link if requested
+        # Send reset email if requested
         reset_link = None
+        reset_email_sent = False
         if req.generate_reset_link:
-            try:
-                # Get reset continue URL from config (if set)
-                continue_url = getattr(settings, 'FIREBASE_RESET_CONTINUE_URL', None)
-                
-                action_code_settings = None
-                if continue_url:
-                    action_code_settings = ActionCodeSettings(
-                        url=continue_url,
-                        handle_code_in_app=False
-                    )
-                
-                reset_link = auth_client.generate_password_reset_link(
-                    req.email,
-                    action_code_settings=action_code_settings
-                )
-                message += " (reset link generated)"
-            except Exception as e:
+            sent, send_error = await _send_password_reset_email(req.email)
+            reset_email_sent = sent
+            if sent:
+                message += " (reset email sent)"
+            else:
                 # Log error but don't fail the request
                 return EnsureUserResponse(
                     status=status,
                     firebase_uid=firebase_uid,
-                    message=message + f" (reset link generation failed: {str(e)})",
-                    errors=[f"Reset link generation failed: {str(e)}"]
+                    reset_email_sent=reset_email_sent,
+                    message=message + f" (reset email failed: {send_error})",
+                    errors=[f"Reset email failed: {send_error}"]
                 )
         
         return EnsureUserResponse(
             status=status,
             firebase_uid=firebase_uid,
             reset_link=reset_link,
+            reset_email_sent=reset_email_sent,
             message=message
         )
     

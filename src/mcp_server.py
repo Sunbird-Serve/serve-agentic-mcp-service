@@ -843,14 +843,14 @@ TOOL_REGISTRY = {
     "firebase.auth.ensure_user": {
         "endpoint": "/mcp/firebase.auth.ensure_user",
         "method": "POST",
-        "description": "Idempotently ensure a Firebase email/password user exists. Creates user if missing and optionally generates password reset link",
+        "description": "Idempotently ensure a Firebase email/password user exists. Creates user if missing and optionally sends password reset email via Firebase REST API",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "email": {"type": "string", "description": "Email address"},
                 "display_name": {"type": "string", "description": "Display name for the user"},
                 "create_if_missing": {"type": "boolean", "default": True, "description": "Create user if doesn't exist"},
-                "generate_reset_link": {"type": "boolean", "default": True, "description": "Generate password reset link"}
+                "generate_reset_link": {"type": "boolean", "default": True, "description": "Send password reset email"}
             },
             "required": ["email"]
         }

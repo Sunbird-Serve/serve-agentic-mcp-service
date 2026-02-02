@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     FIREBASE_SERVICE_ACCOUNT_JSON: str = "./serve-sandbox-firebase-adminsdk-4i44o-ac8df1245e.json"
     FIREBASE_PROJECT_ID: Optional[str] = None
     FIREBASE_RESET_CONTINUE_URL: Optional[str] = None
+    FIREBASE_WEB_API_KEY: Optional[str] = None
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
