@@ -12,7 +12,7 @@ import os
 
 from config import settings
 from tools.wa_media import upload_media_to_whatsapp, send_video_message
-from tools.wa_media_cache import get_cached_media_id, save_cached_media_id
+from tools.wa_media_cache import get_cached_media_id, save_cached_media_id, delete_cached_media_id
 
 router = APIRouter()
 
@@ -87,6 +87,10 @@ async def _send_video_internal(
     Returns:
         SendClassVideoResponse with result
     """
+    invalid_media_markers = [
+        "not a valid whatsapp business account media attachment ID",
+        "Param video['id']"
+    ]
     # Validate configuration
     if not settings.WHATSAPP_ACCESS_TOKEN:
         return SendClassVideoResponse(
@@ -162,6 +166,60 @@ async def _send_video_internal(
     )
     
     if send_error:
+        is_invalid_media = any(marker in send_error for marker in invalid_media_markers)
+        if is_invalid_media and cached:
+            delete_cached_media_id(
+                file_hash,
+                settings.WHATSAPP_PHONE_NUMBER_ID,
+                settings.WA_MEDIA_CACHE_PATH
+            )
+            
+            media_id, upload_error = await upload_media_to_whatsapp(
+                file_path=video_path,
+                mime_type="video/mp4",
+                access_token=settings.WHATSAPP_ACCESS_TOKEN,
+                phone_number_id=settings.WHATSAPP_PHONE_NUMBER_ID,
+                api_version=settings.WHATSAPP_API_VERSION
+            )
+            
+            if upload_error:
+                return SendClassVideoResponse(
+                    ok=False,
+                    error=f"Upload failed: {upload_error}"
+                )
+            
+            if media_id:
+                save_cached_media_id(
+                    file_hash,
+                    settings.WHATSAPP_PHONE_NUMBER_ID,
+                    media_id,
+                    settings.WA_MEDIA_CACHE_PATH
+                )
+            
+            wa_message_id, send_error = await send_video_message(
+                to_phone=to_phone,
+                media_id=media_id,
+                caption=caption,
+                access_token=settings.WHATSAPP_ACCESS_TOKEN,
+                phone_number_id=settings.WHATSAPP_PHONE_NUMBER_ID,
+                api_version=settings.WHATSAPP_API_VERSION
+            )
+            
+            if send_error:
+                return SendClassVideoResponse(
+                    ok=False,
+                    media_id=media_id,
+                    cached=False,
+                    error=f"Send failed: {send_error}"
+                )
+            
+            return SendClassVideoResponse(
+                ok=True,
+                media_id=media_id,
+                wa_message_id=wa_message_id,
+                cached=False
+            )
+        
         return SendClassVideoResponse(
             ok=False,
             media_id=media_id,

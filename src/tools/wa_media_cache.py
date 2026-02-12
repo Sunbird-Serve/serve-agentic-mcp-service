@@ -88,3 +88,28 @@ def save_cached_media_id(
         # If cache write fails, log but don't crash
         pass
 
+def delete_cached_media_id(file_hash: str, phone_number_id: str, cache_path: str) -> bool:
+    """
+    Delete cached media_id for a file hash and phone number ID.
+    
+    Returns True if a cache entry was deleted, False otherwise.
+    """
+    if not os.path.exists(cache_path):
+        return False
+    
+    try:
+        with open(cache_path, 'r', encoding='utf-8') as f:
+            cache = json.load(f)
+        
+        cache_key = f"{file_hash}_{phone_number_id}"
+        if cache_key not in cache:
+            return False
+        
+        del cache[cache_key]
+        
+        with open(cache_path, 'w', encoding='utf-8') as f:
+            json.dump(cache, f, indent=2, ensure_ascii=False)
+        return True
+    except (json.JSONDecodeError, IOError, KeyError):
+        return False
+
