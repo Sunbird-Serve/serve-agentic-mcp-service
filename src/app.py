@@ -1,21 +1,7 @@
-import sys
-import io
+from runtime_logging import configure_runtime_logging
 
-# Configure UTF-8 encoding for stdout/stderr (Python 3.7+)
-# This ensures Unicode characters (emojis, etc.) are properly handled on Windows
-if sys.stdout.encoding != 'utf-8':
-    try:
-        sys.stdout.reconfigure(encoding='utf-8')
-    except (AttributeError, ValueError):
-        # Fallback for older Python versions or if reconfigure fails
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-
-if sys.stderr.encoding != 'utf-8':
-    try:
-        sys.stderr.reconfigure(encoding='utf-8')
-    except (AttributeError, ValueError):
-        # Fallback for older Python versions or if reconfigure fails
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+# Configure UTF-8 console output and mirror all stdout/stderr logs to file.
+configure_runtime_logging()
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
