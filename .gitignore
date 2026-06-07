@@ -3,3 +3,7 @@
 *.pyc
 *-310.pyc
 *.md
+profile_store/
+state_store/
+telemetry_logs/
+logs/

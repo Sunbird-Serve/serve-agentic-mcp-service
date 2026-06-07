@@ -598,6 +598,56 @@ TOOL_REGISTRY = {
             "required": ["when_ISO", "reason"]
         }
     },
+    "profile.save": {
+        "endpoint": "/mcp/profile.save",
+        "method": "POST",
+        "description": "Save a volunteer profile (create or overwrite). Use for initial profile creation.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "volunteerId": {"type": "string", "description": "Unique volunteer ID"},
+                "profile": {
+                    "type": "object",
+                    "description": "Profile data",
+                    "properties": {
+                        "identity": {"type": "object", "properties": {"fullname": {"type": "string"}, "gender": {"type": "string"}, "dob": {"type": "string"}, "nationality": {"type": "string"}}, "required": ["fullname"]},
+                        "contact": {"type": "object", "properties": {"email": {"type": "string"}, "mobile": {"type": "string"}, "city": {"type": "string"}, "state": {"type": "string"}, "country": {"type": "string"}}},
+                        "teaching": {"type": "object", "properties": {"subjects": {"type": "array", "items": {"type": "string"}}, "grades": {"type": "array", "items": {"type": "string"}}, "languages": {"type": "array", "items": {"type": "string"}}, "days": {"type": "array", "items": {"type": "string"}}, "time_windows": {"type": "array"}, "timezone": {"type": "string"}}},
+                        "eligibility": {"type": "object", "properties": {"age_years": {"type": "integer"}, "has_device": {"type": "boolean"}, "weekly_commitment_hours": {"type": "number"}, "language_comfort": {"type": "string"}}},
+                        "consent_given": {"type": "boolean"},
+                        "onboarding_status": {"type": "string"},
+                        "notes": {"type": "string"}
+                    }
+                }
+            },
+            "required": ["volunteerId", "profile"]
+        }
+    },
+    "profile.update": {
+        "endpoint": "/mcp/profile.update",
+        "method": "POST",
+        "description": "Partially update a volunteer profile (deep merge). Only provided fields are changed.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "volunteerId": {"type": "string", "description": "Volunteer ID"},
+                "updates": {"type": "object", "description": "Partial profile fields to update"}
+            },
+            "required": ["volunteerId", "updates"]
+        }
+    },
+    "profile.get": {
+        "endpoint": "/mcp/profile.get",
+        "method": "POST",
+        "description": "Retrieve a volunteer's full profile including teaching preferences, eligibility, and contact details.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "volunteerId": {"type": "string", "description": "Volunteer ID"}
+            },
+            "required": ["volunteerId"]
+        }
+    },
     "telemetry.emit": {
         "endpoint": "/mcp/telemetry.emit",
         "method": "POST",
