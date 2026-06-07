@@ -784,6 +784,36 @@ TOOL_REGISTRY = {
             "required": ["to_phone"]
         }
     },
+    "video.generate_personalised": {
+        "endpoint": "/mcp/video.generate_personalised",
+        "method": "POST",
+        "description": "Generate a personalised video context (caption + video path) for a volunteer. Returns ready-to-send video info.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Volunteer's name for personalisation"},
+                "context": {"type": "string", "enum": ["welcome", "orientation", "thankyou"], "description": "Video context type"},
+                "locale": {"type": "string", "default": "en-IN", "description": "Locale for caption language"},
+                "custom_message": {"type": "string", "description": "Optional custom message to append to caption"}
+            },
+            "required": ["name", "context"]
+        }
+    },
+    "video.send_personalised": {
+        "endpoint": "/mcp/video.send_personalised",
+        "method": "POST",
+        "description": "Generate and send a personalised video via WhatsApp (template video + personalised caption with volunteer's name)",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "to_phone": {"type": "string", "description": "Recipient phone number (E.164 format)"},
+                "name": {"type": "string", "description": "Volunteer's name for personalisation"},
+                "context": {"type": "string", "enum": ["welcome", "orientation", "thankyou"], "default": "welcome", "description": "Video context type"},
+                "custom_message": {"type": "string", "description": "Optional custom caption text"}
+            },
+            "required": ["to_phone", "name"]
+        }
+    },
     "serve.volunteer.email_exists": {
         "endpoint": "/mcp/serve.volunteer.email_exists",
         "method": "POST",
