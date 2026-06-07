@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     SERVE_THANKYOU_VIDEO_PATH: str = "./media/thankyou.mp4"
     WA_MEDIA_CACHE_PATH: str = "./media_cache.json"
     
+    # Logging configuration
+    LOG_FILE_PATH: str = ""
+    LOG_MAX_BYTES: int = 10_000_000  # 10 MB
+    LOG_BACKUP_COUNT: int = 3
+
     # Firebase configuration
     FIREBASE_SERVICE_ACCOUNT_JSON: str = "./serve-sandbox-firebase-adminsdk-4i44o-ac8df1245e.json"
     FIREBASE_PROJECT_ID: Optional[str] = None

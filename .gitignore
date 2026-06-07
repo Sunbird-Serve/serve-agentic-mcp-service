@@ -3,3 +3,5 @@
 *.pyc
 *-310.pyc
 *.md
+telemetry_logs/
+logs/

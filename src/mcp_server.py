@@ -601,14 +601,44 @@ TOOL_REGISTRY = {
     "telemetry.emit": {
         "endpoint": "/mcp/telemetry.emit",
         "method": "POST",
-        "description": "Emit telemetry event",
+        "description": "Log a telemetry event for analytics (drop-offs, failures, completions, state transitions). Events are persisted to JSONL files.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "event": {"type": "string"},
-                "payload": {"type": "object"}
+                "event": {"type": "string", "description": "Event type (e.g., 'onboarding.completed', 'tool.failed')"},
+                "payload": {"type": "object", "description": "Event payload data"},
+                "volunteerId": {"type": "string", "description": "Volunteer ID if applicable"},
+                "sessionId": {"type": "string", "description": "Session/conversation ID"},
+                "timestamp": {"type": "string", "description": "ISO8601 timestamp (auto-generated if not provided)"}
             },
-            "required": ["event", "payload"]
+            "required": ["event"]
+        }
+    },
+    "telemetry.query": {
+        "endpoint": "/mcp/telemetry.query",
+        "method": "POST",
+        "description": "Query telemetry events with filtering by volunteerId, eventType, or time range",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "volunteerId": {"type": "string", "description": "Filter by volunteer ID"},
+                "eventType": {"type": "string", "description": "Filter by event type (prefix match supported, e.g., 'onboarding' matches all onboarding events)"},
+                "since": {"type": "string", "description": "ISO8601 timestamp — only events after this time"},
+                "until": {"type": "string", "description": "ISO8601 timestamp — only events before this time"},
+                "limit": {"type": "integer", "default": 50, "minimum": 1, "maximum": 200, "description": "Max events to return"}
+            }
+        }
+    },
+    "telemetry.stats": {
+        "endpoint": "/mcp/telemetry.stats",
+        "method": "POST",
+        "description": "Get aggregate telemetry statistics: event counts by type, unique volunteers, time range",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "volunteerId": {"type": "string", "description": "Filter stats by volunteer ID"},
+                "since": {"type": "string", "description": "ISO8601 timestamp — stats after this time"}
+            }
         }
     },
     "onboarding.next": {
