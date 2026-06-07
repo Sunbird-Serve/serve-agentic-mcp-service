@@ -854,6 +854,30 @@ TOOL_REGISTRY = {
             },
             "required": ["volunteer_id", "status"]
         }
+    },
+    "fulfill.match": {
+        "endpoint": "/mcp/fulfill.match",
+        "method": "POST",
+        "description": "Match a volunteer to best-fit Serve needs using rule-based scoring (day overlap 45%, time overlap 35%, recency 20%). Returns ranked matches with score breakdown.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "volunteerId": {"type": "string", "description": "Volunteer ID"},
+                "preferences": {
+                    "type": "object",
+                    "description": "Volunteer preferences (optional — fetched from store if not provided)",
+                    "properties": {
+                        "days": {"type": "array", "items": {"type": "string"}, "description": "Preferred days, e.g. ['Mon','Tue']"},
+                        "time_windows": {"type": "array", "items": {"type": "object", "properties": {"start": {"type": "string"}, "end": {"type": "string"}}}, "description": "Preferred time windows"},
+                        "timezone": {"type": "string", "default": "Asia/Kolkata"}
+                    },
+                    "required": ["days"]
+                },
+                "maxResults": {"type": "integer", "default": 5, "minimum": 1, "maximum": 20, "description": "Maximum matches to return"},
+                "minScore": {"type": "number", "default": 0.1, "minimum": 0, "maximum": 1, "description": "Minimum score threshold"}
+            },
+            "required": ["volunteerId"]
+        }
     }
 }
 
