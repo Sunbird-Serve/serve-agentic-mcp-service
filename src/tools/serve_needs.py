@@ -325,3 +325,55 @@ async def serve_needs_list(req: ServeNeedsListRequest) -> ServeNeedsListResponse
             detail=f"Failed to parse Serve needs response: {str(e)}"
         )
 
+
+# --------- Need Details Endpoint ---------
+
+class NeedDetailsRequest(BaseModel):
+    """Request parameters for getting need details"""
+    needId: str = Field(..., description="UUID of the Serve need")
+
+class NeedDetailsResponse(BaseModel):
+    """Detailed information about a single need"""
+    found: bool
+    need: Optional[ServeNeedItem] = None
+    raw: Optional[Dict[str, Any]] = None
+    message: str = ""
+
+@router.post("/serve.needs.get", response_model=NeedDetailsResponse)
+async def serve_needs_get(req: NeedDetailsRequest) -> NeedDetailsResponse:
+    """
+    Get detailed information about a specific Serve need by ID.
+    """
+    url = f"{SERVE_API_BASE_URL}{req.needId}"
+
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            response = await client.get(url)
+
+            if response.status_code == 404:
+                return NeedDetailsResponse(
+                    found=False,
+                    message=f"Need not found: {req.needId}"
+                )
+
+            response.raise_for_status()
+            data = response.json()
+
+            # Map the response
+            mapped = _map_serve_response_item(data)
+            return NeedDetailsResponse(
+                found=True,
+                need=mapped,
+                raw=data,
+                message="Need found"
+            )
+
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Request timeout fetching need details")
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return NeedDetailsResponse(found=False, message=f"Need not found: {req.needId}")
+        raise HTTPException(status_code=502, detail=f"Failed to fetch need: HTTP {e.response.status_code}")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch need details: {str(e)}")
+

@@ -20,6 +20,7 @@ from tools import knowledge, llm_qa, onboarding_turns
 from tools import serve_needs, serve_fulfill
 from tools import wa_video
 from tools import serve_volunteering
+from tools import serve_status
 from mcp_tools.firebase_auth import email_exists_router, ensure_user_router
 from mcp_tools.serve_volunteer import update_status_router
 
@@ -90,6 +91,7 @@ app.include_router(serve_needs.router, prefix="/mcp")  # Serve needs list
 app.include_router(serve_fulfill.router, prefix="/mcp")  # Serve fulfillment nomination
 app.include_router(wa_video.router, prefix="/mcp")  # WhatsApp video sending
 app.include_router(serve_volunteering.router, prefix="/mcp")  # Serve volunteering tools
+app.include_router(serve_status.router, prefix="/mcp")  # Volunteer status
 app.include_router(email_exists_router, prefix="/mcp")  # Firebase auth: email exists
 app.include_router(ensure_user_router, prefix="/mcp")  # Firebase auth: ensure user
 app.include_router(update_status_router, prefix="/mcp")  # SERVE volunteer: update status

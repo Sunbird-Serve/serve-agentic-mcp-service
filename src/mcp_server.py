@@ -730,6 +730,30 @@ TOOL_REGISTRY = {
             }
         }
     },
+    "serve.needs.get": {
+        "endpoint": "/mcp/serve.needs.get",
+        "method": "POST",
+        "description": "Get detailed information about a specific Serve need by ID",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "needId": {"type": "string", "description": "UUID of the Serve need"}
+            },
+            "required": ["needId"]
+        }
+    },
+    "serve.volunteer.status": {
+        "endpoint": "/mcp/serve.volunteer.status",
+        "method": "POST",
+        "description": "Get comprehensive volunteer status: onboarding progress, nomination history, and profile completion",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "volunteerId": {"type": "string", "description": "SERVE volunteer osid"}
+            },
+            "required": ["volunteerId"]
+        }
+    },
     "serve.fulfill.nominate": {
         "endpoint": "/mcp/serve.fulfill.nominate",
         "method": "POST",
