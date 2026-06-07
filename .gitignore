@@ -3,3 +3,6 @@
 *.pyc
 *-310.pyc
 *.md
+state_store/
+telemetry_logs/
+logs/

@@ -429,7 +429,7 @@ TOOL_REGISTRY = {
     "state.get": {
         "endpoint": "/mcp/state.get",
         "method": "POST",
-        "description": "Get the current onboarding state for a volunteer (returns WELCOME if new)",
+        "description": "Get the current onboarding state for a volunteer (returns WELCOME if new). Includes TTL expiry check.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -441,7 +441,7 @@ TOOL_REGISTRY = {
     "state.advance": {
         "endpoint": "/mcp/state.advance",
         "method": "POST",
-        "description": "Advance volunteer's onboarding state based on intent (with validation)",
+        "description": "Advance volunteer's onboarding state based on intent (with validation). Persisted to disk.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -450,6 +450,32 @@ TOOL_REGISTRY = {
                 "idempotency_key": {"type": "string", "description": "Optional key to prevent duplicate transitions"}
             },
             "required": ["volunteerId", "intent"]
+        }
+    },
+    "conversation.save": {
+        "endpoint": "/mcp/conversation.save",
+        "method": "POST",
+        "description": "Save full conversation state (arbitrary JSON) for a volunteer so agents can resume flows. Supports configurable TTL.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "volunteerId": {"type": "string", "description": "Volunteer ID"},
+                "state": {"type": "object", "description": "Full conversation state object to persist"},
+                "ttl_hours": {"type": "integer", "minimum": 1, "maximum": 720, "description": "Custom TTL in hours (default: 72)"}
+            },
+            "required": ["volunteerId", "state"]
+        }
+    },
+    "conversation.get": {
+        "endpoint": "/mcp/conversation.get",
+        "method": "POST",
+        "description": "Retrieve conversation state for a volunteer. Returns state with expiry info.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "volunteerId": {"type": "string", "description": "Volunteer ID"}
+            },
+            "required": ["volunteerId"]
         }
     },
     "eligibility.check": {
